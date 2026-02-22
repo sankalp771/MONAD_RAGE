@@ -4,6 +4,7 @@
 
 Live at: [roast-on-chain.onrender.com](https://roast-on-chain.onrender.com) · Contract: [`0xAa9381a6C0717aF8345C36477D09B76CeF2A05F4`](https://testnet.monadexplorer.com/address/0xAa9381a6C0717aF8345C36477D09B76CeF2A05F4) on Monad Testnet
 
+DEPLOYED CONTRACT ADDRESS : 0xAa9381a6C0717aF8345C36477D09B76CeF2A05F4
 ---
 
 ## How It Works
