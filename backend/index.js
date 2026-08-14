@@ -5,7 +5,7 @@ const multer  = require("multer");
 const path    = require("path");
 const { ethers } = require("ethers");
 const { startListener } = require("./listener");
-const { saveFile, UPLOAD_DIR } = require("./storage");
+const { saveFile, detectImageType, UPLOAD_DIR } = require("./storage");
 const { profileMessage, contentMessage, challengeMessage, verifySigned } = require("./auth");
 const { isArenaCreator, isParticipant } = require("./chain");
 const {
@@ -37,8 +37,15 @@ const upload = multer({
 
 app.use(cors());
 app.use(express.json());
-// Serve uploaded files as static assets
-app.use("/uploads", express.static(UPLOAD_DIR));
+// Serve uploaded files as static assets.
+// Everything in here is user-supplied — lock down how browsers interpret it.
+app.use("/uploads", express.static(UPLOAD_DIR, {
+  setHeaders(res) {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    // Neutralizes script execution even if a non-image ever slips in
+    res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self'");
+  },
+}));
 
 // ─── Health ──────────────────────────────────────────────────────────────────
 
@@ -55,8 +62,14 @@ app.post("/upload", upload.single("file"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file or unsupported type (jpeg/png/gif/webp only)" });
   }
+  // The multer fileFilter only sees the client-declared mimetype;
+  // verify the actual bytes and derive the extension from them.
+  const detected = detectImageType(req.file.buffer);
+  if (!detected) {
+    return res.status(400).json({ error: "File is not a valid JPEG/PNG/GIF/WebP image" });
+  }
   try {
-    const url = await saveFile(req.file.buffer, req.file.originalname);
+    const url = await saveFile(req.file.buffer, detected.ext);
     res.json({ url });
   } catch (err) {
     console.error(err);
