@@ -22,6 +22,10 @@ build/
 Thumbs.db
 .claude/
 
+# Local data
+*.db
+backend/uploads/
+
 # Environment Variables
 .env
 .env.local

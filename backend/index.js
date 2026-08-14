@@ -1,11 +1,14 @@
 require("dotenv").config();
 const express = require("express");
 const cors    = require("cors");
+const { rateLimit } = require("express-rate-limit");
 const multer  = require("multer");
 const path    = require("path");
 const { ethers } = require("ethers");
 const { startListener } = require("./listener");
-const { saveFile, UPLOAD_DIR } = require("./storage");
+const { saveFile, detectImageType, UPLOAD_DIR } = require("./storage");
+const { profileMessage, contentMessage, challengeMessage, verifySigned } = require("./auth");
+const { isArenaCreator, isParticipant } = require("./chain");
 const {
   initDB,
   upsertProfile,
@@ -33,10 +36,66 @@ const upload = multer({
   },
 });
 
-app.use(cors());
+// Behind Render/any reverse proxy the client IP arrives via X-Forwarded-For;
+// without this every client shares the proxy's IP and rate limits misfire.
+app.set("trust proxy", 1);
+
+// Restrict CORS when ALLOWED_ORIGINS is set (comma-separated), e.g.
+// ALLOWED_ORIGINS=https://roast-on-chain.vercel.app,http://localhost:3000
+// Unset = allow all (backward compatible).
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+  .split(",").map((o) => o.trim()).filter(Boolean);
+app.use(cors(allowedOrigins.length ? { origin: allowedOrigins } : {}));
+
 app.use(express.json());
-// Serve uploaded files as static assets
-app.use("/uploads", express.static(UPLOAD_DIR));
+
+// Reads are polled by every open tab; keep the ceiling high but real.
+app.use(rateLimit({
+  windowMs: 60_000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+}));
+// Writes are human-initiated — much tighter.
+const writeLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many writes — slow down" },
+});
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Upload limit reached — try again later" },
+});
+app.use(["/profile", "/roast/:roastId/content", "/roast/:roastId/challenge"], (req, res, next) =>
+  req.method === "POST" ? writeLimiter(req, res, next) : next()
+);
+app.use("/upload", uploadLimiter);
+// Serve uploaded files as static assets.
+// Everything in here is user-supplied — lock down how browsers interpret it.
+app.use("/uploads", express.static(UPLOAD_DIR, {
+  setHeaders(res) {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    // Neutralizes script execution even if a non-image ever slips in
+    res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self'");
+  },
+}));
+
+// Only our own /uploads paths or absolute https URLs may be stored as media —
+// anything else (javascript:, data:, protocol-relative, …) is rejected.
+function isSafeMediaUrl(url) {
+  if (url === "") return true;
+  if (url.startsWith("/uploads/") && !url.includes("..")) return true;
+  try {
+    return new URL(url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 // ─── Health ──────────────────────────────────────────────────────────────────
 
@@ -53,8 +112,14 @@ app.post("/upload", upload.single("file"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No file or unsupported type (jpeg/png/gif/webp only)" });
   }
+  // The multer fileFilter only sees the client-declared mimetype;
+  // verify the actual bytes and derive the extension from them.
+  const detected = detectImageType(req.file.buffer);
+  if (!detected) {
+    return res.status(400).json({ error: "File is not a valid JPEG/PNG/GIF/WebP image" });
+  }
   try {
-    const url = await saveFile(req.file.buffer, req.file.originalname);
+    const url = await saveFile(req.file.buffer, detected.ext);
     res.json({ url });
   } catch (err) {
     console.error(err);
@@ -84,14 +149,23 @@ app.get("/profile/:address", async (req, res) => {
 
 /**
  * POST /profile
- * Body: { address, username, avatar_url?, bio? }
- * Upserts profile. No auth in V1 — wallet address is identity.
+ * Body: { address, username, avatar_url?, bio?, ts, signature }
+ * Upserts profile. The wallet must sign the payload — see auth.js.
  */
 app.post("/profile", async (req, res) => {
-  const { address, username, avatar_url = "", bio = "" } = req.body;
+  const { address, username, avatar_url = "", bio = "", ts, signature } = req.body;
 
   if (!address || !ethers.isAddress(address)) {
     return res.status(400).json({ error: "Invalid address" });
+  }
+  const authError = verifySigned({
+    address,
+    ts,
+    signature,
+    message: profileMessage({ address, username: username ?? "", bio, avatar_url, ts }),
+  });
+  if (authError) {
+    return res.status(401).json({ error: authError });
   }
   if (!username || username.trim().length === 0) {
     return res.status(400).json({ error: "Username required" });
@@ -118,18 +192,28 @@ app.post("/profile", async (req, res) => {
 
 /**
  * POST /roast/:roastId/content
- * Body: { author, content }
+ * Body: { author, content, ts, signature }
  * Stores the actual roast text off-chain. One per address per roast.
+ * The author wallet must sign the payload — see auth.js.
  */
 app.post("/roast/:roastId/content", async (req, res) => {
   const roastId = parseInt(req.params.roastId, 10);
-  const { author, content } = req.body;
+  const { author, content, ts, signature } = req.body;
 
   if (isNaN(roastId) || roastId < 0) {
     return res.status(400).json({ error: "Invalid roast ID" });
   }
   if (!author || !ethers.isAddress(author)) {
     return res.status(400).json({ error: "Invalid author address" });
+  }
+  const authError = verifySigned({
+    address: author,
+    ts,
+    signature,
+    message: contentMessage({ roastId, author, content: content ?? "", ts }),
+  });
+  if (authError) {
+    return res.status(401).json({ error: authError });
   }
   if (!content || content.trim().length === 0) {
     return res.status(400).json({ error: "Content required" });
@@ -139,6 +223,16 @@ app.post("/roast/:roastId/content", async (req, res) => {
   }
 
   try {
+    let joined;
+    try {
+      joined = await isParticipant(roastId, author);
+    } catch {
+      return res.status(503).json({ error: "Could not verify participation — try again" });
+    }
+    if (!joined) {
+      return res.status(403).json({ error: "Join the arena on-chain before submitting a roast" });
+    }
+
     const existing = await getExistingContent(roastId, author.toLowerCase());
     if (existing) {
       return res.status(409).json({ error: "You have already submitted a roast for this arena" });
@@ -179,18 +273,28 @@ app.get("/roast/:roastId/content", async (req, res) => {
 
 /**
  * POST /roast/:roastId/challenge
- * Body: { creator, title, description?, media_url? }
+ * Body: { creator, title, description?, media_url?, ts, signature }
  * Saves what the arena is about (the subject being roasted). One per arena.
+ * The creator wallet must sign the payload — see auth.js.
  */
 app.post("/roast/:roastId/challenge", async (req, res) => {
   const roastId = parseInt(req.params.roastId, 10);
-  const { creator, title, description = "", media_url = "" } = req.body;
+  const { creator, title, description = "", media_url = "", ts, signature } = req.body;
 
   if (isNaN(roastId) || roastId < 0) {
     return res.status(400).json({ error: "Invalid roast ID" });
   }
   if (!creator || !ethers.isAddress(creator)) {
     return res.status(400).json({ error: "Invalid creator address" });
+  }
+  const authError = verifySigned({
+    address: creator,
+    ts,
+    signature,
+    message: challengeMessage({ roastId, creator, title: title ?? "", description, media_url, ts }),
+  });
+  if (authError) {
+    return res.status(401).json({ error: authError });
   }
   if (!title || title.trim().length === 0) {
     return res.status(400).json({ error: "Title required" });
@@ -204,8 +308,21 @@ app.post("/roast/:roastId/challenge", async (req, res) => {
   if (media_url.length > 500) {
     return res.status(400).json({ error: "Media URL max 500 chars" });
   }
+  if (!isSafeMediaUrl(media_url.trim())) {
+    return res.status(400).json({ error: "Media URL must be an /uploads/ path or an https:// URL" });
+  }
 
   try {
+    let isCreator;
+    try {
+      isCreator = await isArenaCreator(roastId, creator);
+    } catch {
+      return res.status(503).json({ error: "Could not verify arena creator — try again" });
+    }
+    if (!isCreator) {
+      return res.status(403).json({ error: "Only the arena creator can set the challenge" });
+    }
+
     await upsertChallengeContent({
       roast_id:    roastId,
       creator:     creator.toLowerCase(),

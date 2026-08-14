@@ -8,7 +8,7 @@ import { STATE_LABEL, STATE_COLOR, RoastState } from "@/lib/contract";
 
 export default function ProfilePage({ params }: { params: Promise<{ address: string }> }) {
   const { address: paramAddress } = use(params);
-  const { address: myAddress } = useWallet();
+  const { address: myAddress, signer } = useWallet();
 
   const isOwner = myAddress?.toLowerCase() === paramAddress.toLowerCase();
 
@@ -32,10 +32,10 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   }, [paramAddress]);
 
   const handleSave = async () => {
-    if (!myAddress) return;
+    if (!myAddress || !signer) return;
     setSaving(true); setError("");
     try {
-      await saveProfile({ address: myAddress, username, bio });
+      await saveProfile(signer, { address: myAddress, username, bio });
       setProfile((p) => p ? { ...p, username, bio } : p);
       setEditing(false);
       setSaved(true);
