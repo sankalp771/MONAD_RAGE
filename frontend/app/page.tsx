@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { ethers } from "ethers";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
@@ -39,6 +39,17 @@ export default function Home() {
   const [mediaFile, setMediaFile]             = useState<File | null>(null);
   const [mediaPreview, setMediaPreview]       = useState<string | null>(null);
   const [error, setError]                 = useState("");
+
+  // Blob preview URLs hold the whole image buffer until revoked.
+  const previewRef = useRef<string | null>(null);
+  const updatePreview = useCallback((f: File | null) => {
+    if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+    previewRef.current = f ? URL.createObjectURL(f) : null;
+    setMediaPreview(previewRef.current);
+  }, []);
+  useEffect(() => () => {
+    if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -85,7 +96,12 @@ export default function Home() {
     try {
       const contract = new ethers.Contract(CONTRACT_ADDRESS, ROAST_ARENA_ABI as string[], signer);
       const tx = await contract.createRoast(roastWei, voteWei, { value: roastWei });
+      // wait() resolves to null if the tx was dropped/replaced
       const receipt = await tx.wait();
+      if (!receipt) {
+        setError("Transaction was dropped or replaced — check your wallet activity");
+        return;
+      }
       const iface = new ethers.Interface(ROAST_ARENA_ABI as string[]);
       let roastId: string | null = null;
       for (const log of receipt.logs) {
@@ -181,7 +197,7 @@ export default function Home() {
                       type="button"
                       onClick={() => {
                         setMediaType(t);
-                        if (t === "text") { setMediaFile(null); setMediaPreview(null); }
+                        if (t === "text") { setMediaFile(null); updatePreview(null); }
                       }}
                       className={`flex-1 py-2 rounded-lg border text-sm font-medium capitalize transition-all ${
                         mediaType === t
@@ -209,7 +225,7 @@ export default function Home() {
                       />
                       <button
                         type="button"
-                        onClick={() => { setMediaFile(null); setMediaPreview(null); }}
+                        onClick={() => { setMediaFile(null); updatePreview(null); }}
                         className="absolute top-2 right-2 bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-full w-7 h-7 flex items-center justify-center text-xs border border-zinc-700"
                       >
                         ✕
@@ -226,7 +242,7 @@ export default function Home() {
                         onChange={(e) => {
                           const f = e.target.files?.[0] ?? null;
                           setMediaFile(f);
-                          setMediaPreview(f ? URL.createObjectURL(f) : null);
+                          updatePreview(f);
                         }}
                       />
                     </label>
@@ -283,7 +299,7 @@ export default function Home() {
                     setChallengeDesc("");
                     setMediaType("text");
                     setMediaFile(null);
-                    setMediaPreview(null);
+                    updatePreview(null);
                   }}
                   className="px-4 py-2 text-zinc-400 hover:text-white border border-zinc-700 rounded-lg"
                 >

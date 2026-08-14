@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, useRef, use } from "react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { useWallet } from "@/lib/useWallet";
@@ -20,6 +20,10 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   const [saving, setSaving]     = useState(false);
   const [error, setError]       = useState("");
   const [saved, setSaved]       = useState(false);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+  }, []);
 
   useEffect(() => {
     getProfile(paramAddress).then((p) => {
@@ -39,7 +43,8 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
       setProfile((p) => p ? { ...p, username, bio } : p);
       setEditing(false);
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setSaved(false), 2000);
     } catch (err: unknown) {
       setError((err as Error).message || "Failed to save");
     } finally {
