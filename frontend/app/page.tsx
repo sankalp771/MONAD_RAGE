@@ -61,8 +61,16 @@ export default function Home() {
     if (!signer) { connect(); return; }
     if (isWrongNetwork) { switchNetwork(); return; }
 
-    const roastWei = ethers.parseEther(roastStake || "0");
-    const voteWei  = ethers.parseEther(voteStake  || "0");
+    // parseEther throws on malformed input ("1.2.3", >18 decimals) — parse
+    // before setting `creating` so a bad value surfaces as a form error.
+    let roastWei: bigint, voteWei: bigint;
+    try {
+      roastWei = ethers.parseEther(roastStake || "0");
+      voteWei  = ethers.parseEther(voteStake  || "0");
+    } catch {
+      setError("Stake amounts must be valid numbers (max 18 decimals)");
+      return;
+    }
     if (roastWei === 0n || voteWei === 0n) {
       setError("Both stake amounts must be > 0");
       return;
