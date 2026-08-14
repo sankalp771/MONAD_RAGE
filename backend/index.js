@@ -47,6 +47,18 @@ app.use("/uploads", express.static(UPLOAD_DIR, {
   },
 }));
 
+// Only our own /uploads paths or absolute https URLs may be stored as media —
+// anything else (javascript:, data:, protocol-relative, …) is rejected.
+function isSafeMediaUrl(url) {
+  if (url === "") return true;
+  if (url.startsWith("/uploads/") && !url.includes("..")) return true;
+  try {
+    return new URL(url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 // ─── Health ──────────────────────────────────────────────────────────────────
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
@@ -257,6 +269,9 @@ app.post("/roast/:roastId/challenge", async (req, res) => {
   }
   if (media_url.length > 500) {
     return res.status(400).json({ error: "Media URL max 500 chars" });
+  }
+  if (!isSafeMediaUrl(media_url.trim())) {
+    return res.status(400).json({ error: "Media URL must be an /uploads/ path or an https:// URL" });
   }
 
   try {

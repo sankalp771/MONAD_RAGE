@@ -8,7 +8,7 @@ import {
   ROAST_ARENA_ABI, CONTRACT_ADDRESS,
   RoastState, STATE_LABEL, STATE_COLOR,
 } from "@/lib/contract";
-import { getRoastContent, submitContent, getChallengeContent, type RoastContent, type ChallengeContent } from "@/lib/api";
+import { BASE, getRoastContent, submitContent, getChallengeContent, type RoastContent, type ChallengeContent } from "@/lib/api";
 import { useCountdown, formatCountdown } from "@/lib/useCountdown";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -424,11 +424,19 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
               <p className="text-zinc-400 text-sm mb-3 whitespace-pre-wrap">{challengeContent.description}</p>
             )}
             {challengeContent.media_url && (() => {
-              const BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
-              const src  = challengeContent.media_url.startsWith("/")
-                ? `${BASE}${challengeContent.media_url}`
-                : challengeContent.media_url;
-              return /\.(jpe?g|png|gif|webp|svg)(\?.*)?$/i.test(src) ? (
+              // Defense in depth: only render our own /uploads paths or
+              // https URLs, whatever the backend stored.
+              const raw = challengeContent.media_url;
+              let src: string | null = null;
+              if (raw.startsWith("/uploads/") && !raw.includes("..")) {
+                src = `${BASE}${raw}`;
+              } else {
+                try {
+                  if (new URL(raw).protocol === "https:") src = raw;
+                } catch { /* not a valid absolute URL — don't render it */ }
+              }
+              if (!src) return null;
+              return /\.(jpe?g|png|gif|webp)(\?.*)?$/i.test(src) ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={src}
