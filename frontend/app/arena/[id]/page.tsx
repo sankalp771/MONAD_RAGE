@@ -412,6 +412,12 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
     ? roast.voterPool / roast.winnerVoterCount
     : 0n;
 
+  // What claimRefund would pay out right now (mirrors the contract logic)
+  const refundDue = roast && isCancelled
+    ? (hasJoined && !claimedRoaster ? roast.roastStake : 0n) +
+      (hasVoted  && !claimedVoter  ? roast.voteStake  : 0n)
+    : 0n;
+
   if (!roast) {
     return (
       <div className="min-h-screen flex flex-col">
@@ -557,11 +563,14 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
           <p className="text-center text-green-700 text-sm mb-3">Voter reward already claimed.</p>
         )}
 
-        {isCancelled && (hasJoined || hasVoted) && (
+        {isCancelled && refundDue > 0n && (
           <button onClick={handleClaimRefund} disabled={claiming !== null}
             className="w-full bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-white font-bold py-3 rounded-lg mb-3">
-            {claiming === "refund" ? "Claiming refund…" : "Claim Refund"}
+            {claiming === "refund" ? "Claiming refund…" : `Claim Refund (${fmt(refundDue)})`}
           </button>
+        )}
+        {isCancelled && (hasJoined || hasVoted) && refundDue === 0n && (
+          <p className="text-center text-zinc-500 text-sm mb-3">Refund already claimed.</p>
         )}
 
         {/* Join button */}
