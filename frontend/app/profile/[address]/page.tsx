@@ -4,7 +4,7 @@ import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { useWallet } from "@/lib/useWallet";
 import { getProfile, saveProfile, getUserRoasts, type Profile, type RoastIndex } from "@/lib/api";
-import { STATE_LABEL, STATE_COLOR, RoastState } from "@/lib/contract";
+import { STATE_NAME_COLOR, effectiveStateName } from "@/lib/contract";
 
 export default function ProfilePage({ params }: { params: Promise<{ address: string }> }) {
   const { address: paramAddress } = use(params);
@@ -148,9 +148,10 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                     <span className="ml-2 text-orange-400 text-xs">WINNER</span>
                   )}
                 </div>
-                <span className={STATE_COLOR[r.state as unknown as RoastState] ?? "text-zinc-400"}>
-                  {STATE_LABEL[r.state as unknown as RoastState] ?? r.state}
-                </span>
+                {(() => {
+                  const name = effectiveStateName(r.state, r.open_until, r.vote_until);
+                  return <span className={STATE_NAME_COLOR[name]}>{name}</span>;
+                })()}
               </Link>
             ))}
           </div>

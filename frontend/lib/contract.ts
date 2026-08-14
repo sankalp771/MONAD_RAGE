@@ -114,3 +114,23 @@ export const STATE_COLOR: Record<RoastState, string> = {
   [RoastState.SETTLED]:   "text-blue-400",
   [RoastState.CANCELLED]: "text-red-400",
 };
+
+// The backend API reports state as a string; the DB listener never writes
+// "VOTING" (there is no on-chain transition event for it), so derive the
+// effective name from the stored timestamps.
+export type RoastStateName = "OPEN" | "VOTING" | "SETTLED" | "CANCELLED";
+
+export const STATE_NAME_COLOR: Record<RoastStateName, string> = {
+  OPEN:      "text-green-400",
+  VOTING:    "text-yellow-400",
+  SETTLED:   "text-blue-400",
+  CANCELLED: "text-red-400",
+};
+
+export function effectiveStateName(
+  state: string, openUntil: number, voteUntil: number,
+): RoastStateName {
+  if (state === "SETTLED" || state === "CANCELLED") return state;
+  const now = Math.floor(Date.now() / 1000);
+  return now < openUntil ? "OPEN" : "VOTING";
+}

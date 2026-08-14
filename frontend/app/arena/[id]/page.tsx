@@ -96,6 +96,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
   const [hasVoted, setHasVoted]           = useState(false);
   const [iAmWinner, setIAmWinner]         = useState(false);
   const [iVotedRight, setIVotedRight]     = useState(false);
+  const [myVote, setMyVote]               = useState("");
   const [claimedRoaster, setClaimedRoaster] = useState(false);
   const [claimedVoter, setClaimedVoter]   = useState(false);
 
@@ -175,6 +176,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
         setHasVoted(false);
         setIAmWinner(false);
         setIVotedRight(false);
+        setMyVote("");
         setClaimedRoaster(false);
         setClaimedVoter(false);
       }
@@ -195,11 +197,13 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
         setClaimedVoter(clVoter);
 
         if (voted) {
-          const myVote: string = await c.votedFor(roastId, address);
-          const votedForWinner: boolean = await c.isWinner(roastId, myVote);
+          const voteAddr: string = await c.votedFor(roastId, address);
+          const votedForWinner: boolean = await c.isWinner(roastId, voteAddr);
           if (gen !== loadGen.current) return;
+          setMyVote(voteAddr);
           setIVotedRight(votedForWinner);
         } else {
+          setMyVote("");
           setIVotedRight(false);
         }
 
@@ -674,8 +678,9 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
                     {canVote && isMe && (
                       <span className="shrink-0 text-zinc-600 text-xs py-2">can&apos;t self-vote</span>
                     )}
-                    {hasVoted && effectiveState === RoastState.VOTING && (
-                      <span className="shrink-0 text-green-600 text-xs py-2">voted</span>
+                    {hasVoted && myVote.toLowerCase() === lower &&
+                      (effectiveState === RoastState.VOTING || isSettled) && (
+                      <span className="shrink-0 text-green-600 text-xs py-2">your vote ✓</span>
                     )}
                   </div>
                 </div>

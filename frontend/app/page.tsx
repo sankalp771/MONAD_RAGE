@@ -4,7 +4,7 @@ import { ethers } from "ethers";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { useWallet } from "@/lib/useWallet";
-import { ROAST_ARENA_ABI, CONTRACT_ADDRESS, NATIVE_SYMBOL } from "@/lib/contract";
+import { ROAST_ARENA_ABI, CONTRACT_ADDRESS, NATIVE_SYMBOL, STATE_NAME_COLOR, effectiveStateName } from "@/lib/contract";
 import { getRecentRoastsFromDB, submitChallengeContent, uploadMedia, type RoastIndex } from "@/lib/api";
 import { useCountdown, formatCountdown } from "@/lib/useCountdown";
 
@@ -345,14 +345,10 @@ export default function Home() {
                   </div>
                   <div className="flex items-center gap-6 text-sm">
                     <Countdown openUntil={r.open_until} voteUntil={r.vote_until} state={r.state} />
-                    <span className={
-                      r.state === "OPEN"      ? "text-green-400"
-                      : r.state === "VOTING"  ? "text-yellow-400"
-                      : r.state === "SETTLED" ? "text-blue-400"
-                      : "text-red-400"
-                    }>
-                      {r.state}
-                    </span>
+                    {(() => {
+                      const name = effectiveStateName(r.state, r.open_until, r.vote_until);
+                      return <span className={STATE_NAME_COLOR[name]}>{name}</span>;
+                    })()}
                   </div>
                 </div>
               </Link>
