@@ -5,7 +5,7 @@ import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { useWallet } from "@/lib/useWallet";
 import {
-  ROAST_ARENA_ABI, CONTRACT_ADDRESS,
+  ROAST_ARENA_ABI, CONTRACT_ADDRESS, NATIVE_SYMBOL,
   RoastState, STATE_LABEL, STATE_COLOR,
 } from "@/lib/contract";
 import { BASE, getRoastContent, submitContent, getChallengeContent, type RoastContent, type ChallengeContent } from "@/lib/api";
@@ -30,7 +30,7 @@ interface OnChainRoast {
 }
 
 function fmt(wei: bigint) {
-  return parseFloat(ethers.formatEther(wei)).toFixed(4).replace(/\.?0+$/, "") + " ETH";
+  return parseFloat(ethers.formatEther(wei)).toFixed(4).replace(/\.?0+$/, "") + ` ${NATIVE_SYMBOL}`;
 }
 
 // ─── Phase banner ─────────────────────────────────────────────────────────────

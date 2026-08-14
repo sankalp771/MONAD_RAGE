@@ -4,7 +4,7 @@ import { ethers } from "ethers";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { useWallet } from "@/lib/useWallet";
-import { ROAST_ARENA_ABI, CONTRACT_ADDRESS, RoastState, STATE_LABEL, STATE_COLOR } from "@/lib/contract";
+import { ROAST_ARENA_ABI, CONTRACT_ADDRESS, NATIVE_SYMBOL } from "@/lib/contract";
 import { getRecentRoastsFromDB, submitChallengeContent, uploadMedia, type RoastIndex } from "@/lib/api";
 import { useCountdown, formatCountdown } from "@/lib/useCountdown";
 
@@ -231,7 +231,7 @@ export default function Home() {
               </div>
 
               <label className="block">
-                <span className="text-zinc-400 text-sm">Roaster stake (ETH per roaster)</span>
+                <span className="text-zinc-400 text-sm">Roaster stake ({NATIVE_SYMBOL} per roaster)</span>
                 <input
                   type="number"
                   step="0.001"
@@ -243,7 +243,7 @@ export default function Home() {
               </label>
 
               <label className="block">
-                <span className="text-zinc-400 text-sm">Vote stake (ETH per vote)</span>
+                <span className="text-zinc-400 text-sm">Vote stake ({NATIVE_SYMBOL} per vote)</span>
                 <input
                   type="number"
                   step="0.001"
@@ -255,8 +255,8 @@ export default function Home() {
               </label>
 
               <p className="text-zinc-500 text-xs">
-                You pay {roastStake} ETH now to create &amp; join. Others stake the same to roast.
-                Voters stake {voteStake} ETH. Winning voters share the voter pool.
+                You pay {roastStake} {NATIVE_SYMBOL} now to create &amp; join. Others stake the same to roast.
+                Voters stake {voteStake} {NATIVE_SYMBOL}. Winning voters share the voter pool.
               </p>
 
               <div className="flex gap-3">

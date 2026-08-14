@@ -90,6 +90,9 @@ export const MONAD_TESTNET = {
 const configuredChainId = parseInt(process.env.NEXT_PUBLIC_CHAIN_ID || "10143", 10);
 export const TARGET_CHAIN = configuredChainId === 31337 ? ANVIL_LOCAL : MONAD_TESTNET;
 
+// Native currency symbol of the active chain ("MON" on Monad, "ETH" on Anvil)
+export const NATIVE_SYMBOL = TARGET_CHAIN.nativeCurrency.symbol;
+
 // RoastState enum mirrors the contract
 export enum RoastState {
   OPEN      = 0,
