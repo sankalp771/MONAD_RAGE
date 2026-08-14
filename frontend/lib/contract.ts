@@ -90,6 +90,9 @@ export const MONAD_TESTNET = {
 const configuredChainId = parseInt(process.env.NEXT_PUBLIC_CHAIN_ID || "10143", 10);
 export const TARGET_CHAIN = configuredChainId === 31337 ? ANVIL_LOCAL : MONAD_TESTNET;
 
+// Native currency symbol of the active chain ("MON" on Monad, "ETH" on Anvil)
+export const NATIVE_SYMBOL = TARGET_CHAIN.nativeCurrency.symbol;
+
 // RoastState enum mirrors the contract
 export enum RoastState {
   OPEN      = 0,
@@ -111,3 +114,21 @@ export const STATE_COLOR: Record<RoastState, string> = {
   [RoastState.SETTLED]:   "text-blue-400",
   [RoastState.CANCELLED]: "text-red-400",
 };
+
+// The backend API reports state as a string; the DB listener never writes
+// "VOTING" (there is no on-chain transition event for it), so derive the
+// effective name from the stored timestamps.
+export type RoastStateName = "OPEN" | "VOTING" | "SETTLED" | "CANCELLED";
+
+export const STATE_NAME_COLOR: Record<RoastStateName, string> = {
+  OPEN:      "text-green-400",
+  VOTING:    "text-yellow-400",
+  SETTLED:   "text-blue-400",
+  CANCELLED: "text-red-400",
+};
+
+export function effectiveStateName(state: string, openUntil: number): RoastStateName {
+  if (state === "SETTLED" || state === "CANCELLED") return state;
+  const now = Math.floor(Date.now() / 1000);
+  return now < openUntil ? "OPEN" : "VOTING";
+}

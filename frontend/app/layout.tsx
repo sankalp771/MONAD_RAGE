@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
+import { WalletProvider } from "@/lib/WalletContext";
 import "./globals.css";
 
 const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" });
@@ -13,7 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark">
       <body className={`${mono.variable} font-mono bg-black text-white min-h-screen`}>
-        {children}
+        <WalletProvider>{children}</WalletProvider>
       </body>
     </html>
   );

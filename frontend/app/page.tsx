@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { ethers } from "ethers";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { useWallet } from "@/lib/useWallet";
-import { ROAST_ARENA_ABI, CONTRACT_ADDRESS, RoastState, STATE_LABEL, STATE_COLOR } from "@/lib/contract";
+import { ROAST_ARENA_ABI, CONTRACT_ADDRESS, NATIVE_SYMBOL, STATE_NAME_COLOR, effectiveStateName } from "@/lib/contract";
 import { getRecentRoastsFromDB, submitChallengeContent, uploadMedia, type RoastIndex } from "@/lib/api";
 import { useCountdown, formatCountdown } from "@/lib/useCountdown";
 
@@ -26,9 +27,14 @@ function Countdown({ openUntil, voteUntil, state }: { openUntil: number; voteUnt
 }
 
 export default function Home() {
-  const { address, signer, isWrongNetwork, connect, switchNetwork } = useWallet();
+  const router = useRouter();
+  const { signer, isWrongNetwork, connect, switchNetwork } = useWallet();
   const [roasts, setRoasts]       = useState<RoastIndex[]>([]);
   const [loading, setLoading]     = useState(true);
+  const [loadError, setLoadError] = useState("");
+  // Set when the arena tx succeeded but an off-chain step (image upload /
+  // challenge save) failed — the user needs to know instead of a silent loss.
+  const [createWarning, setCreateWarning] = useState<{ id: string; msg: string } | null>(null);
   const [creating, setCreating]   = useState(false);
   const [showForm, setShowForm]   = useState(false);
   const [roastStake, setRoastStake]       = useState("0.01");
@@ -40,12 +46,24 @@ export default function Home() {
   const [mediaPreview, setMediaPreview]       = useState<string | null>(null);
   const [error, setError]                 = useState("");
 
+  // Blob preview URLs hold the whole image buffer until revoked.
+  const previewRef = useRef<string | null>(null);
+  const updatePreview = useCallback((f: File | null) => {
+    if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+    previewRef.current = f ? URL.createObjectURL(f) : null;
+    setMediaPreview(previewRef.current);
+  }, []);
+  useEffect(() => () => {
+    if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+  }, []);
+
   const load = useCallback(async () => {
     try {
       const rows = await getRecentRoastsFromDB(20);
       setRoasts(rows);
+      setLoadError("");
     } catch {
-      setError("Could not load arenas — is the backend running?");
+      setLoadError("Could not load arenas — is the backend running?");
     } finally {
       setLoading(false);
     }
@@ -61,8 +79,16 @@ export default function Home() {
     if (!signer) { connect(); return; }
     if (isWrongNetwork) { switchNetwork(); return; }
 
-    const roastWei = ethers.parseEther(roastStake || "0");
-    const voteWei  = ethers.parseEther(voteStake  || "0");
+    // parseEther throws on malformed input ("1.2.3", >18 decimals) — parse
+    // before setting `creating` so a bad value surfaces as a form error.
+    let roastWei: bigint, voteWei: bigint;
+    try {
+      roastWei = ethers.parseEther(roastStake || "0");
+      voteWei  = ethers.parseEther(voteStake  || "0");
+    } catch {
+      setError("Stake amounts must be valid numbers (max 18 decimals)");
+      return;
+    }
     if (roastWei === 0n || voteWei === 0n) {
       setError("Both stake amounts must be > 0");
       return;
@@ -77,7 +103,12 @@ export default function Home() {
     try {
       const contract = new ethers.Contract(CONTRACT_ADDRESS, ROAST_ARENA_ABI as string[], signer);
       const tx = await contract.createRoast(roastWei, voteWei, { value: roastWei });
+      // wait() resolves to null if the tx was dropped/replaced
       const receipt = await tx.wait();
+      if (!receipt) {
+        setError("Transaction was dropped or replaced — check your wallet activity");
+        return;
+      }
       const iface = new ethers.Interface(ROAST_ARENA_ABI as string[]);
       let roastId: string | null = null;
       for (const log of receipt.logs) {
@@ -88,20 +119,37 @@ export default function Home() {
       }
       if (roastId) {
         const addr = await signer.getAddress();
+        const failures: string[] = [];
         let mediaUrl = "";
         if (mediaType === "image" && mediaFile) {
-          try { mediaUrl = await uploadMedia(mediaFile); } catch { /* non-fatal */ }
+          try {
+            mediaUrl = await uploadMedia(mediaFile);
+          } catch (e: unknown) {
+            failures.push(`image upload failed (${(e as Error).message || "unknown error"})`);
+          }
         }
-        await submitChallengeContent(
-          signer,
-          parseInt(roastId),
-          addr,
-          challengeTitle.trim(),
-          challengeDesc.trim(),
-          mediaUrl,
-        ).catch(() => { /* non-fatal — arena still works without it */ });
-        window.location.href = `/arena/${roastId}`;
+        try {
+          await submitChallengeContent(
+            signer,
+            parseInt(roastId),
+            addr,
+            challengeTitle.trim(),
+            challengeDesc.trim(),
+            mediaUrl,
+          );
+        } catch (e: unknown) {
+          failures.push(`challenge details failed to save (${(e as Error).message || "unknown error"})`);
+        }
+        if (failures.length) {
+          // The arena exists on-chain — tell the user what was lost and let
+          // them decide, instead of silently redirecting.
+          setCreateWarning({ id: roastId, msg: failures.join("; ") });
+          setShowForm(false);
+        } else {
+          router.push(`/arena/${roastId}`);
+        }
       } else {
+        setError("Arena created, but its ID could not be read from the receipt — it will appear in the list shortly.");
         load();
       }
     } catch (err: unknown) {
@@ -173,7 +221,7 @@ export default function Home() {
                       type="button"
                       onClick={() => {
                         setMediaType(t);
-                        if (t === "text") { setMediaFile(null); setMediaPreview(null); }
+                        if (t === "text") { setMediaFile(null); updatePreview(null); }
                       }}
                       className={`flex-1 py-2 rounded-lg border text-sm font-medium capitalize transition-all ${
                         mediaType === t
@@ -201,7 +249,7 @@ export default function Home() {
                       />
                       <button
                         type="button"
-                        onClick={() => { setMediaFile(null); setMediaPreview(null); }}
+                        onClick={() => { setMediaFile(null); updatePreview(null); }}
                         className="absolute top-2 right-2 bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-full w-7 h-7 flex items-center justify-center text-xs border border-zinc-700"
                       >
                         ✕
@@ -218,7 +266,7 @@ export default function Home() {
                         onChange={(e) => {
                           const f = e.target.files?.[0] ?? null;
                           setMediaFile(f);
-                          setMediaPreview(f ? URL.createObjectURL(f) : null);
+                          updatePreview(f);
                         }}
                       />
                     </label>
@@ -231,7 +279,7 @@ export default function Home() {
               </div>
 
               <label className="block">
-                <span className="text-zinc-400 text-sm">Roaster stake (ETH per roaster)</span>
+                <span className="text-zinc-400 text-sm">Roaster stake ({NATIVE_SYMBOL} per roaster)</span>
                 <input
                   type="number"
                   step="0.001"
@@ -243,7 +291,7 @@ export default function Home() {
               </label>
 
               <label className="block">
-                <span className="text-zinc-400 text-sm">Vote stake (ETH per vote)</span>
+                <span className="text-zinc-400 text-sm">Vote stake ({NATIVE_SYMBOL} per vote)</span>
                 <input
                   type="number"
                   step="0.001"
@@ -255,8 +303,8 @@ export default function Home() {
               </label>
 
               <p className="text-zinc-500 text-xs">
-                You pay {roastStake} ETH now to create &amp; join. Others stake the same to roast.
-                Voters stake {voteStake} ETH. Winning voters share the voter pool.
+                You pay {roastStake} {NATIVE_SYMBOL} now to create &amp; join. Others stake the same to roast.
+                Voters stake {voteStake} {NATIVE_SYMBOL}. Winning voters share the voter pool.
               </p>
 
               <div className="flex gap-3">
@@ -275,7 +323,7 @@ export default function Home() {
                     setChallengeDesc("");
                     setMediaType("text");
                     setMediaFile(null);
-                    setMediaPreview(null);
+                    updatePreview(null);
                   }}
                   className="px-4 py-2 text-zinc-400 hover:text-white border border-zinc-700 rounded-lg"
                 >
@@ -294,6 +342,15 @@ export default function Home() {
         </div>
 
         {error && <p className="text-center text-red-400 mb-6 text-sm">{error}</p>}
+        {createWarning && (
+          <p className="text-center text-yellow-400 mb-6 text-sm">
+            Arena #{createWarning.id} was created on-chain, but {createWarning.msg}.{" "}
+            <Link href={`/arena/${createWarning.id}`} className="underline">Open arena</Link>
+          </p>
+        )}
+        {loadError && !loading && roasts.length === 0 && (
+          <p className="text-center text-red-400 mb-6 text-sm">{loadError}</p>
+        )}
 
         <h2 className="text-zinc-500 text-xs uppercase tracking-widest mb-4">Recent Arenas</h2>
 
@@ -321,14 +378,10 @@ export default function Home() {
                   </div>
                   <div className="flex items-center gap-6 text-sm">
                     <Countdown openUntil={r.open_until} voteUntil={r.vote_until} state={r.state} />
-                    <span className={
-                      r.state === "OPEN"      ? "text-green-400"
-                      : r.state === "VOTING"  ? "text-yellow-400"
-                      : r.state === "SETTLED" ? "text-blue-400"
-                      : "text-red-400"
-                    }>
-                      {r.state}
-                    </span>
+                    {(() => {
+                      const name = effectiveStateName(r.state, r.open_until);
+                      return <span className={STATE_NAME_COLOR[name]}>{name}</span>;
+                    })()}
                   </div>
                 </div>
               </Link>

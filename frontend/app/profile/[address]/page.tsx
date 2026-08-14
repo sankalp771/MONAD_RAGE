@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, useRef, use } from "react";
+import { isAddress } from "ethers";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { useWallet } from "@/lib/useWallet";
 import { getProfile, saveProfile, getUserRoasts, type Profile, type RoastIndex } from "@/lib/api";
-import { STATE_LABEL, STATE_COLOR, RoastState } from "@/lib/contract";
+import { STATE_NAME_COLOR, effectiveStateName } from "@/lib/contract";
 
 export default function ProfilePage({ params }: { params: Promise<{ address: string }> }) {
   const { address: paramAddress } = use(params);
@@ -20,16 +21,33 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
   const [saving, setSaving]     = useState(false);
   const [error, setError]       = useState("");
   const [saved, setSaved]       = useState(false);
+  const [loading, setLoading]   = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+  }, []);
+
+  const validAddress = isAddress(paramAddress);
 
   useEffect(() => {
-    getProfile(paramAddress).then((p) => {
-      setProfile(p);
-      setUsername(p.username);
-      setBio(p.bio);
-    }).catch(() => {});
-
-    getUserRoasts(paramAddress).then(setRoasts).catch(() => {});
-  }, [paramAddress]);
+    if (!validAddress) { setLoading(false); return; }
+    Promise.allSettled([
+      getProfile(paramAddress).then((p) => {
+        setProfile(p);
+        setUsername(p.username);
+        setBio(p.bio);
+      }),
+      getUserRoasts(paramAddress).then(setRoasts),
+    ]).then((results) => {
+      if (results.some((r) => r.status === "rejected")) {
+        setLoadError("Could not load profile data — is the backend running?");
+      } else {
+        setLoadError("");
+      }
+      setLoading(false);
+    });
+  }, [paramAddress, validAddress]);
 
   const handleSave = async () => {
     if (!myAddress || !signer) return;
@@ -39,7 +57,8 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
       setProfile((p) => p ? { ...p, username, bio } : p);
       setEditing(false);
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setSaved(false), 2000);
     } catch (err: unknown) {
       setError((err as Error).message || "Failed to save");
     } finally {
@@ -49,6 +68,29 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
 
   const short = `${paramAddress.slice(0, 6)}…${paramAddress.slice(-4)}`;
 
+  if (!validAddress) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Navbar />
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-zinc-500">
+          <p>That doesn&apos;t look like a wallet address.</p>
+          <Link href="/" className="text-orange-400 underline text-sm">← Back to arenas</Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Navbar />
+        <div className="flex-1 flex items-center justify-center text-zinc-600">
+          Loading profile…
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
@@ -57,6 +99,8 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
         <Link href="/" className="text-zinc-600 hover:text-white text-sm mb-6 inline-block">
           ← Home
         </Link>
+
+        {loadError && <p className="text-red-400 text-sm mb-4">{loadError}</p>}
 
         {/* Profile card */}
         <div className="border border-zinc-800 rounded-lg p-6 mb-8">
@@ -143,9 +187,10 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                     <span className="ml-2 text-orange-400 text-xs">WINNER</span>
                   )}
                 </div>
-                <span className={STATE_COLOR[r.state as unknown as RoastState] ?? "text-zinc-400"}>
-                  {STATE_LABEL[r.state as unknown as RoastState] ?? r.state}
-                </span>
+                {(() => {
+                  const name = effectiveStateName(r.state, r.open_until);
+                  return <span className={STATE_NAME_COLOR[name]}>{name}</span>;
+                })()}
               </Link>
             ))}
           </div>
