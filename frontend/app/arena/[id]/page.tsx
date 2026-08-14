@@ -9,7 +9,7 @@ import {
   RoastState, STATE_LABEL, STATE_COLOR,
 } from "@/lib/contract";
 import { BASE, getRoastContent, submitContent, getChallengeContent, type RoastContent, type ChallengeContent } from "@/lib/api";
-import { useCountdown, formatCountdown } from "@/lib/useCountdown";
+import { useCountdown, useNow, formatCountdown } from "@/lib/useCountdown";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface OnChainRoast {
@@ -42,11 +42,10 @@ function fmt(wei: bigint) {
 }
 
 // ─── Phase banner ─────────────────────────────────────────────────────────────
-// All timestamps passed here are already adjusted to real-time scale.
 function PhaseBanner({
   state, openUntil, voteUntil,
 }: { state: number; openUntil: number; voteUntil: number }) {
-  const now = Math.floor(Date.now() / 1000);
+  const now = useNow();
   const effectiveState =
     state === RoastState.SETTLED || state === RoastState.CANCELLED ? state
     : now < openUntil ? RoastState.OPEN
@@ -100,12 +99,6 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
   const [claimedRoaster, setClaimedRoaster] = useState(false);
   const [claimedVoter, setClaimedVoter]   = useState(false);
 
-  // blockOffset = blockTimestamp - realTimestamp (seconds).
-  // Anvil timestamps can drift from system clock (e.g. after evm_increaseTime).
-  // We subtract this offset from all on-chain timestamps before display so
-  // countdowns reflect real elapsed time rather than blockchain elapsed time.
-  const [blockOffset, setBlockOffset]     = useState(0);
-
   const [joining, setJoining]             = useState(false);
   const [voting, setVoting]               = useState<string | null>(null);
   const [settling, setSettling]           = useState(false);
@@ -126,19 +119,11 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
     try {
       const c = readContract;
 
-      // Fetch current block timestamp alongside contract data.
-      // This lets us correct any clock skew between Anvil and real time.
-      const [r, pList, wList, latestBlock] = await Promise.all([
+      const [r, pList, wList] = await Promise.all([
         c.getRoast(roastId),
         c.getParticipants(roastId),
         c.getWinners(roastId),
-        readProvider.getBlock("latest"),
       ]);
-
-      // Compute offset: how many seconds ahead of real time is the blockchain?
-      const realNow = Math.floor(Date.now() / 1000);
-      const chainNow = latestBlock ? Number(latestBlock.timestamp) : realNow;
-      setBlockOffset(chainNow - realNow); // can be negative if chain is behind
 
       if (gen !== loadGen.current) return; // a newer load superseded this one
 
@@ -376,29 +361,30 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
 
   // ─── Derived state ─────────────────────────────────────────────────────────
 
-  // On-chain timestamps in seconds (blockchain scale).
+  // On-chain deadlines (unix seconds). Monad block timestamps track wall time
+  // closely, so we compare them against real time directly — the previous
+  // "block offset" correction pushed deadlines later than the contract
+  // enforces and kept Join/Settle buttons alive on actions that would revert.
   const openUntil    = roast ? Number(roast.openUntil)  : 0;
   const voteUntil    = roast ? Number(roast.voteUntil)  : 0;
   const storedState  = roast ? roast.state : -1;
 
-  // Adjust blockchain timestamps to real-time scale for display & state checks.
-  // If blockOffset = 240 (chain is 4min ahead), subtracting it aligns to realNow.
-  const openUntilReal = openUntil - blockOffset;
-  const voteUntilReal = voteUntil - blockOffset;
-
-  // Use real-time `now` against real-time-adjusted deadlines.
-  const now = Math.floor(Date.now() / 1000);
+  // Ticks every second so the phase flips the moment a deadline passes,
+  // instead of lagging until the next 4s data poll.
+  const now = useNow();
 
   const effectiveState: RoastState =
     storedState === RoastState.SETTLED || storedState === RoastState.CANCELLED
       ? storedState
-      : now < openUntilReal ? RoastState.OPEN
+      : now < openUntil ? RoastState.OPEN
       : RoastState.VOTING;
 
   const canJoin   = effectiveState === RoastState.OPEN && !hasJoined;
   const canVote   = effectiveState === RoastState.VOTING && !hasVoted;
+  // +2s buffer: the chain's clock can trail wall time slightly; settling at
+  // the exact boundary would revert with VotingNotEnded.
   const canSettle = !settled &&
-    now >= voteUntilReal &&
+    now >= voteUntil + 2 &&
     storedState !== RoastState.SETTLED &&
     storedState !== RoastState.CANCELLED &&
     (hasJoined || hasVoted);
@@ -493,8 +479,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
           </div>
         )}
 
-        {/* Pass real-time-adjusted timestamps so countdown shows actual remaining time */}
-        <PhaseBanner state={storedState} openUntil={openUntilReal} voteUntil={voteUntilReal} />
+        <PhaseBanner state={storedState} openUntil={openUntil} voteUntil={voteUntil} />
 
         {/* Pool sizes */}
         <div className="grid grid-cols-2 gap-3 mb-6">
