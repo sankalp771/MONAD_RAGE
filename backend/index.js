@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors    = require("cors");
+const { rateLimit } = require("express-rate-limit");
 const multer  = require("multer");
 const path    = require("path");
 const { ethers } = require("ethers");
@@ -35,8 +36,45 @@ const upload = multer({
   },
 });
 
-app.use(cors());
+// Behind Render/any reverse proxy the client IP arrives via X-Forwarded-For;
+// without this every client shares the proxy's IP and rate limits misfire.
+app.set("trust proxy", 1);
+
+// Restrict CORS when ALLOWED_ORIGINS is set (comma-separated), e.g.
+// ALLOWED_ORIGINS=https://roast-on-chain.vercel.app,http://localhost:3000
+// Unset = allow all (backward compatible).
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+  .split(",").map((o) => o.trim()).filter(Boolean);
+app.use(cors(allowedOrigins.length ? { origin: allowedOrigins } : {}));
+
 app.use(express.json());
+
+// Reads are polled by every open tab; keep the ceiling high but real.
+app.use(rateLimit({
+  windowMs: 60_000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+}));
+// Writes are human-initiated — much tighter.
+const writeLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many writes — slow down" },
+});
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Upload limit reached — try again later" },
+});
+app.use(["/profile", "/roast/:roastId/content", "/roast/:roastId/challenge"], (req, res, next) =>
+  req.method === "POST" ? writeLimiter(req, res, next) : next()
+);
+app.use("/upload", uploadLimiter);
 // Serve uploaded files as static assets.
 // Everything in here is user-supplied — lock down how browsers interpret it.
 app.use("/uploads", express.static(UPLOAD_DIR, {
