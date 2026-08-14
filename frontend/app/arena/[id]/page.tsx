@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback, use } from "react";
+import { useEffect, useState, useCallback, useRef, use } from "react";
 import { ethers } from "ethers";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
@@ -114,7 +114,14 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
   const [error, setError]                 = useState("");
   const [txMsg, setTxMsg]                 = useState("");
 
+  // Guards against overlapping polls: on a slow RPC a stale response could
+  // land after a fresh one and overwrite newer state (e.g. reset hasVoted
+  // right after a successful vote). Each load takes a generation number and
+  // only the latest generation is allowed to write state.
+  const loadGen = useRef(0);
+
   const loadChainData = useCallback(async () => {
+    const gen = ++loadGen.current;
     try {
       const c = readContract;
 
@@ -131,6 +138,8 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
       const realNow = Math.floor(Date.now() / 1000);
       const chainNow = latestBlock ? Number(latestBlock.timestamp) : realNow;
       setBlockOffset(chainNow - realNow); // can be negative if chain is behind
+
+      if (gen !== loadGen.current) return; // a newer load superseded this one
 
       // ethers v6 returns readonly Result proxies — convert to plain JS before
       // setting as React state (React's reconciler may try to mutate index [0])
@@ -151,11 +160,23 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
 
       if (parts.length > 0) {
         const counts: bigint[] = Array.from(await c.getVoteCounts(roastId, parts));
+        if (gen !== loadGen.current) return;
         const map: Record<string, number> = {};
         parts.forEach((addr: string, i: number) => {
           map[addr.toLowerCase()] = Number(counts[i]);
         });
         setVoteCounts(map);
+      }
+
+      if (!address) {
+        // Wallet disconnected or switched away — clear the previous
+        // account's flags so its buttons don't linger.
+        setHasJoined(false);
+        setHasVoted(false);
+        setIAmWinner(false);
+        setIVotedRight(false);
+        setClaimedRoaster(false);
+        setClaimedVoter(false);
       }
 
       if (address) {
@@ -166,6 +187,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
           c.hasClaimedRoaster(roastId, address),
           c.hasClaimedVoter(roastId, address),
         ]);
+        if (gen !== loadGen.current) return;
         setHasJoined(joined);
         setHasVoted(voted);
         setIAmWinner(winner);
@@ -175,7 +197,10 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
         if (voted) {
           const myVote: string = await c.votedFor(roastId, address);
           const votedForWinner: boolean = await c.isWinner(roastId, myVote);
+          if (gen !== loadGen.current) return;
           setIVotedRight(votedForWinner);
+        } else {
+          setIVotedRight(false);
         }
 
         // If chain says settled, sync local flag too (handles page refreshes)
@@ -207,7 +232,10 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
     loadContent();
     loadChallengeContent();
     const tid = setInterval(() => { loadChainData(); loadContent(); }, 4000);
-    return () => clearInterval(tid);
+    return () => {
+      clearInterval(tid);
+      loadGen.current++; // invalidate any in-flight load on unmount/re-key
+    };
   }, [loadChainData, loadContent, loadChallengeContent]);
 
   // ─── Actions ───────────────────────────────────────────────────────────────
