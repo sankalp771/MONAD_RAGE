@@ -1,4 +1,11 @@
-const BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+import type { ethers } from "ethers";
+import { profileMessage, contentMessage, challengeMessage } from "./signing";
+
+export const BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+
+type Signer = Pick<ethers.JsonRpcSigner, "signMessage">;
+
+const nowTs = () => Math.floor(Date.now() / 1000);
 
 export interface Profile {
   address: string;
@@ -47,12 +54,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const getProfile = (address: string) =>
   request<Profile>(`/profile/${address}`);
 
-export const saveProfile = (data: {
-  address: string;
-  username: string;
-  avatar_url?: string;
-  bio?: string;
-}) => request<{ ok: boolean }>("/profile", { method: "POST", body: JSON.stringify(data) });
+export const saveProfile = async (
+  signer: Signer,
+  data: { address: string; username: string; avatar_url?: string; bio?: string },
+) => {
+  const ts = nowTs();
+  const signature = await signer.signMessage(
+    profileMessage(data.address, data.username, data.bio ?? "", data.avatar_url ?? "", ts),
+  );
+  return request<{ ok: boolean }>("/profile", {
+    method: "POST",
+    body: JSON.stringify({ ...data, ts, signature }),
+  });
+};
 
 export const getUserRoasts = (address: string) =>
   request<RoastIndex[]>(`/profile/${address}/roasts`);
@@ -71,11 +85,16 @@ export interface ChallengeContent {
 export const getRoastContent = (roastId: number) =>
   request<RoastContent[]>(`/roast/${roastId}/content`);
 
-export const submitContent = (roastId: number, author: string, content: string) =>
-  request<{ ok: boolean }>(`/roast/${roastId}/content`, {
+export const submitContent = async (
+  signer: Signer, roastId: number, author: string, content: string,
+) => {
+  const ts = nowTs();
+  const signature = await signer.signMessage(contentMessage(roastId, author, content, ts));
+  return request<{ ok: boolean }>(`/roast/${roastId}/content`, {
     method: "POST",
-    body: JSON.stringify({ author, content }),
+    body: JSON.stringify({ author, content, ts, signature }),
   });
+};
 
 // ─── File Upload ───────────────────────────────────────────────────────────
 
@@ -96,17 +115,23 @@ export const uploadMedia = async (file: File): Promise<string> => {
 export const getChallengeContent = (roastId: number) =>
   request<ChallengeContent | null>(`/roast/${roastId}/challenge`);
 
-export const submitChallengeContent = (
+export const submitChallengeContent = async (
+  signer: Signer,
   roastId: number,
   creator: string,
   title: string,
   description: string,
   mediaUrl: string,
-) =>
-  request<{ ok: boolean }>(`/roast/${roastId}/challenge`, {
+) => {
+  const ts = nowTs();
+  const signature = await signer.signMessage(
+    challengeMessage(roastId, creator, title, description, mediaUrl, ts),
+  );
+  return request<{ ok: boolean }>(`/roast/${roastId}/challenge`, {
     method: "POST",
-    body: JSON.stringify({ creator, title, description, media_url: mediaUrl }),
+    body: JSON.stringify({ creator, title, description, media_url: mediaUrl, ts, signature }),
   });
+};
 
 // ─── Roast Index ───────────────────────────────────────────────────────────
 

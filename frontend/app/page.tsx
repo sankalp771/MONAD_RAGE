@@ -93,6 +93,7 @@ export default function Home() {
           try { mediaUrl = await uploadMedia(mediaFile); } catch { /* non-fatal */ }
         }
         await submitChallengeContent(
+          signer,
           parseInt(roastId),
           addr,
           challengeTitle.trim(),

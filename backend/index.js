@@ -6,6 +6,8 @@ const path    = require("path");
 const { ethers } = require("ethers");
 const { startListener } = require("./listener");
 const { saveFile, UPLOAD_DIR } = require("./storage");
+const { profileMessage, contentMessage, challengeMessage, verifySigned } = require("./auth");
+const { isArenaCreator, isParticipant } = require("./chain");
 const {
   initDB,
   upsertProfile,
@@ -84,14 +86,23 @@ app.get("/profile/:address", async (req, res) => {
 
 /**
  * POST /profile
- * Body: { address, username, avatar_url?, bio? }
- * Upserts profile. No auth in V1 — wallet address is identity.
+ * Body: { address, username, avatar_url?, bio?, ts, signature }
+ * Upserts profile. The wallet must sign the payload — see auth.js.
  */
 app.post("/profile", async (req, res) => {
-  const { address, username, avatar_url = "", bio = "" } = req.body;
+  const { address, username, avatar_url = "", bio = "", ts, signature } = req.body;
 
   if (!address || !ethers.isAddress(address)) {
     return res.status(400).json({ error: "Invalid address" });
+  }
+  const authError = verifySigned({
+    address,
+    ts,
+    signature,
+    message: profileMessage({ address, username: username ?? "", bio, avatar_url, ts }),
+  });
+  if (authError) {
+    return res.status(401).json({ error: authError });
   }
   if (!username || username.trim().length === 0) {
     return res.status(400).json({ error: "Username required" });
@@ -118,18 +129,28 @@ app.post("/profile", async (req, res) => {
 
 /**
  * POST /roast/:roastId/content
- * Body: { author, content }
+ * Body: { author, content, ts, signature }
  * Stores the actual roast text off-chain. One per address per roast.
+ * The author wallet must sign the payload — see auth.js.
  */
 app.post("/roast/:roastId/content", async (req, res) => {
   const roastId = parseInt(req.params.roastId, 10);
-  const { author, content } = req.body;
+  const { author, content, ts, signature } = req.body;
 
   if (isNaN(roastId) || roastId < 0) {
     return res.status(400).json({ error: "Invalid roast ID" });
   }
   if (!author || !ethers.isAddress(author)) {
     return res.status(400).json({ error: "Invalid author address" });
+  }
+  const authError = verifySigned({
+    address: author,
+    ts,
+    signature,
+    message: contentMessage({ roastId, author, content: content ?? "", ts }),
+  });
+  if (authError) {
+    return res.status(401).json({ error: authError });
   }
   if (!content || content.trim().length === 0) {
     return res.status(400).json({ error: "Content required" });
@@ -139,6 +160,16 @@ app.post("/roast/:roastId/content", async (req, res) => {
   }
 
   try {
+    let joined;
+    try {
+      joined = await isParticipant(roastId, author);
+    } catch {
+      return res.status(503).json({ error: "Could not verify participation — try again" });
+    }
+    if (!joined) {
+      return res.status(403).json({ error: "Join the arena on-chain before submitting a roast" });
+    }
+
     const existing = await getExistingContent(roastId, author.toLowerCase());
     if (existing) {
       return res.status(409).json({ error: "You have already submitted a roast for this arena" });
@@ -179,18 +210,28 @@ app.get("/roast/:roastId/content", async (req, res) => {
 
 /**
  * POST /roast/:roastId/challenge
- * Body: { creator, title, description?, media_url? }
+ * Body: { creator, title, description?, media_url?, ts, signature }
  * Saves what the arena is about (the subject being roasted). One per arena.
+ * The creator wallet must sign the payload — see auth.js.
  */
 app.post("/roast/:roastId/challenge", async (req, res) => {
   const roastId = parseInt(req.params.roastId, 10);
-  const { creator, title, description = "", media_url = "" } = req.body;
+  const { creator, title, description = "", media_url = "", ts, signature } = req.body;
 
   if (isNaN(roastId) || roastId < 0) {
     return res.status(400).json({ error: "Invalid roast ID" });
   }
   if (!creator || !ethers.isAddress(creator)) {
     return res.status(400).json({ error: "Invalid creator address" });
+  }
+  const authError = verifySigned({
+    address: creator,
+    ts,
+    signature,
+    message: challengeMessage({ roastId, creator, title: title ?? "", description, media_url, ts }),
+  });
+  if (authError) {
+    return res.status(401).json({ error: authError });
   }
   if (!title || title.trim().length === 0) {
     return res.status(400).json({ error: "Title required" });
@@ -206,6 +247,16 @@ app.post("/roast/:roastId/challenge", async (req, res) => {
   }
 
   try {
+    let isCreator;
+    try {
+      isCreator = await isArenaCreator(roastId, creator);
+    } catch {
+      return res.status(503).json({ error: "Could not verify arena creator — try again" });
+    }
+    if (!isCreator) {
+      return res.status(403).json({ error: "Only the arena creator can set the challenge" });
+    }
+
     await upsertChallengeContent({
       roast_id:    roastId,
       creator:     creator.toLowerCase(),

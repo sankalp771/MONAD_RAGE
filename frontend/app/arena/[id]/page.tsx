@@ -238,10 +238,10 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
   };
 
   const handleSubmitContent = async () => {
-    if (!address || !myContent.trim()) return;
+    if (!address || !signer || !myContent.trim()) return;
     setSubmittingContent(true);
     try {
-      await submitContent(roastId, address, myContent.trim());
+      await submitContent(signer, roastId, address, myContent.trim());
       setMyContent("");
       await loadContent();
     } catch (err: unknown) {
