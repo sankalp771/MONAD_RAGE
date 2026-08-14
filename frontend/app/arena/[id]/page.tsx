@@ -83,7 +83,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
   const { id } = use(params);
   const roastId = parseInt(id, 10);
 
-  const { address, signer, connect } = useWallet();
+  const { address, signer, connect, isWrongNetwork, switchNetwork } = useWallet();
 
   const [roast, setRoast]               = useState<OnChainRoast | null>(null);
   const [participants, setParticipants]   = useState<string[]>([]);
@@ -247,6 +247,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
 
   const handleJoin = async () => {
     if (!signer) { connect(); return; }
+    if (isWrongNetwork) { switchNetwork(); return; }
     if (!roast) return;
     setJoining(true); setError(""); setTxMsg("");
     try {
@@ -279,6 +280,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
 
   const handleVote = async (candidate: string) => {
     if (!signer) { connect(); return; }
+    if (isWrongNetwork) { switchNetwork(); return; }
     if (!roast) return;
     setVoting(candidate); setError(""); setTxMsg("");
     try {
@@ -297,6 +299,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
 
   const handleSettle = async () => {
     if (!signer) { connect(); return; }
+    if (isWrongNetwork) { switchNetwork(); return; }
     setSettling(true); setError(""); setTxMsg("");
     try {
       const c = writeContract();
@@ -315,6 +318,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
 
   const handleClaimRoaster = async () => {
     if (!signer) { connect(); return; }
+    if (isWrongNetwork) { switchNetwork(); return; }
     setClaiming("roaster"); setError(""); setTxMsg("");
     try {
       const c = writeContract();
@@ -332,6 +336,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
 
   const handleClaimVoter = async () => {
     if (!signer) { connect(); return; }
+    if (isWrongNetwork) { switchNetwork(); return; }
     setClaiming("voter"); setError(""); setTxMsg("");
     try {
       const c = writeContract();
@@ -349,6 +354,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
 
   const handleClaimRefund = async () => {
     if (!signer) { connect(); return; }
+    if (isWrongNetwork) { switchNetwork(); return; }
     setClaiming("refund"); setError(""); setTxMsg("");
     try {
       const c = writeContract();
@@ -525,6 +531,12 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
           </div>
         )}
 
+        {isWrongNetwork && (
+          <p className="text-yellow-400 text-sm mb-4">
+            Wrong network — actions will switch you to {TARGET_CHAIN.name}.{" "}
+            <button onClick={switchNetwork} className="underline">Switch now</button>
+          </p>
+        )}
         {error  && <p className="text-red-400 text-sm mb-4">{error}</p>}
         {txMsg  && <p className="text-green-400 text-sm mb-4">{txMsg}</p>}
 
