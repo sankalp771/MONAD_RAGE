@@ -107,6 +107,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
   const [submittingContent, setSubmittingContent] = useState(false);
   const [error, setError]                 = useState("");
   const [txMsg, setTxMsg]                 = useState("");
+  const [chainError, setChainError]       = useState("");
 
   // Guards against overlapping polls: on a slow RPC a stale response could
   // land after a fresh one and overwrite newer state (e.g. reset hasVoted
@@ -143,6 +144,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
       });
       setParticipants(parts);
       setWinners(wins);
+      setChainError("");
 
       if (parts.length > 0) {
         const counts: bigint[] = Array.from(await c.getVoteCounts(roastId, parts));
@@ -199,6 +201,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
       }
     } catch (err) {
       console.error("loadChainData:", err);
+      setChainError("Could not reach the Monad RPC — retrying…");
     }
   }, [roastId, address]);
 
@@ -413,8 +416,9 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
     return (
       <div className="min-h-screen flex flex-col">
         <Navbar />
-        <div className="flex-1 flex items-center justify-center text-zinc-600">
-          Loading arena #{roastId}…
+        <div className="flex-1 flex flex-col items-center justify-center text-zinc-600 gap-2">
+          <span>Loading arena #{roastId}…</span>
+          {chainError && <span className="text-red-400 text-sm">{chainError}</span>}
         </div>
       </div>
     );

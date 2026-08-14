@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { ethers } from "ethers";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
@@ -26,9 +27,14 @@ function Countdown({ openUntil, voteUntil, state }: { openUntil: number; voteUnt
 }
 
 export default function Home() {
+  const router = useRouter();
   const { address, signer, isWrongNetwork, connect, switchNetwork } = useWallet();
   const [roasts, setRoasts]       = useState<RoastIndex[]>([]);
   const [loading, setLoading]     = useState(true);
+  const [loadError, setLoadError] = useState("");
+  // Set when the arena tx succeeded but an off-chain step (image upload /
+  // challenge save) failed — the user needs to know instead of a silent loss.
+  const [createWarning, setCreateWarning] = useState<{ id: string; msg: string } | null>(null);
   const [creating, setCreating]   = useState(false);
   const [showForm, setShowForm]   = useState(false);
   const [roastStake, setRoastStake]       = useState("0.01");
@@ -55,8 +61,9 @@ export default function Home() {
     try {
       const rows = await getRecentRoastsFromDB(20);
       setRoasts(rows);
+      setLoadError("");
     } catch {
-      setError("Could not load arenas — is the backend running?");
+      setLoadError("Could not load arenas — is the backend running?");
     } finally {
       setLoading(false);
     }
@@ -112,20 +119,37 @@ export default function Home() {
       }
       if (roastId) {
         const addr = await signer.getAddress();
+        const failures: string[] = [];
         let mediaUrl = "";
         if (mediaType === "image" && mediaFile) {
-          try { mediaUrl = await uploadMedia(mediaFile); } catch { /* non-fatal */ }
+          try {
+            mediaUrl = await uploadMedia(mediaFile);
+          } catch (e: unknown) {
+            failures.push(`image upload failed (${(e as Error).message || "unknown error"})`);
+          }
         }
-        await submitChallengeContent(
-          signer,
-          parseInt(roastId),
-          addr,
-          challengeTitle.trim(),
-          challengeDesc.trim(),
-          mediaUrl,
-        ).catch(() => { /* non-fatal — arena still works without it */ });
-        window.location.href = `/arena/${roastId}`;
+        try {
+          await submitChallengeContent(
+            signer,
+            parseInt(roastId),
+            addr,
+            challengeTitle.trim(),
+            challengeDesc.trim(),
+            mediaUrl,
+          );
+        } catch (e: unknown) {
+          failures.push(`challenge details failed to save (${(e as Error).message || "unknown error"})`);
+        }
+        if (failures.length) {
+          // The arena exists on-chain — tell the user what was lost and let
+          // them decide, instead of silently redirecting.
+          setCreateWarning({ id: roastId, msg: failures.join("; ") });
+          setShowForm(false);
+        } else {
+          router.push(`/arena/${roastId}`);
+        }
       } else {
+        setError("Arena created, but its ID could not be read from the receipt — it will appear in the list shortly.");
         load();
       }
     } catch (err: unknown) {
@@ -318,6 +342,15 @@ export default function Home() {
         </div>
 
         {error && <p className="text-center text-red-400 mb-6 text-sm">{error}</p>}
+        {createWarning && (
+          <p className="text-center text-yellow-400 mb-6 text-sm">
+            Arena #{createWarning.id} was created on-chain, but {createWarning.msg}.{" "}
+            <Link href={`/arena/${createWarning.id}`} className="underline">Open arena</Link>
+          </p>
+        )}
+        {loadError && !loading && roasts.length === 0 && (
+          <p className="text-center text-red-400 mb-6 text-sm">{loadError}</p>
+        )}
 
         <h2 className="text-zinc-500 text-xs uppercase tracking-widest mb-4">Recent Arenas</h2>
 
