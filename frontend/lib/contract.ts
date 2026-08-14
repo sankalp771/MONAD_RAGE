@@ -127,9 +127,7 @@ export const STATE_NAME_COLOR: Record<RoastStateName, string> = {
   CANCELLED: "text-red-400",
 };
 
-export function effectiveStateName(
-  state: string, openUntil: number, voteUntil: number,
-): RoastStateName {
+export function effectiveStateName(state: string, openUntil: number): RoastStateName {
   if (state === "SETTLED" || state === "CANCELLED") return state;
   const now = Math.floor(Date.now() / 1000);
   return now < openUntil ? "OPEN" : "VOTING";

@@ -28,7 +28,7 @@ function Countdown({ openUntil, voteUntil, state }: { openUntil: number; voteUnt
 
 export default function Home() {
   const router = useRouter();
-  const { address, signer, isWrongNetwork, connect, switchNetwork } = useWallet();
+  const { signer, isWrongNetwork, connect, switchNetwork } = useWallet();
   const [roasts, setRoasts]       = useState<RoastIndex[]>([]);
   const [loading, setLoading]     = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -379,7 +379,7 @@ export default function Home() {
                   <div className="flex items-center gap-6 text-sm">
                     <Countdown openUntil={r.open_until} voteUntil={r.vote_until} state={r.state} />
                     {(() => {
-                      const name = effectiveStateName(r.state, r.open_until, r.vote_until);
+                      const name = effectiveStateName(r.state, r.open_until);
                       return <span className={STATE_NAME_COLOR[name]}>{name}</span>;
                     })()}
                   </div>

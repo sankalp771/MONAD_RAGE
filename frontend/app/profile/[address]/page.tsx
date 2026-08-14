@@ -188,7 +188,7 @@ export default function ProfilePage({ params }: { params: Promise<{ address: str
                   )}
                 </div>
                 {(() => {
-                  const name = effectiveStateName(r.state, r.open_until, r.vote_until);
+                  const name = effectiveStateName(r.state, r.open_until);
                   return <span className={STATE_NAME_COLOR[name]}>{name}</span>;
                 })()}
               </Link>
