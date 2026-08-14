@@ -5,7 +5,7 @@ import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { useWallet } from "@/lib/useWallet";
 import {
-  ROAST_ARENA_ABI, CONTRACT_ADDRESS, NATIVE_SYMBOL,
+  ROAST_ARENA_ABI, CONTRACT_ADDRESS, NATIVE_SYMBOL, TARGET_CHAIN,
   RoastState, STATE_LABEL, STATE_COLOR,
 } from "@/lib/contract";
 import { BASE, getRoastContent, submitContent, getChallengeContent, type RoastContent, type ChallengeContent } from "@/lib/api";
@@ -28,6 +28,14 @@ interface OnChainRoast {
   numWinners: bigint;
   winnerVoterCount: bigint;
 }
+
+// One provider/contract for the whole page lifetime. Previously a new
+// JsonRpcProvider was constructed on every 4s poll (and never destroyed),
+// leaking connections — and its RPC fallback was localhost, which broke
+// production whenever NEXT_PUBLIC_MONAD_RPC was unset. The chain config is
+// the single source of truth for the RPC URL now.
+const readProvider = new ethers.JsonRpcProvider(TARGET_CHAIN.rpcUrls.default.http[0]);
+const readContract = new ethers.Contract(CONTRACT_ADDRESS, ROAST_ARENA_ABI as string[], readProvider);
 
 function fmt(wei: bigint) {
   return parseFloat(ethers.formatEther(wei)).toFixed(4).replace(/\.?0+$/, "") + ` ${NATIVE_SYMBOL}`;
@@ -106,19 +114,9 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
   const [error, setError]                 = useState("");
   const [txMsg, setTxMsg]                 = useState("");
 
-  const getProvider = useCallback(() =>
-    new ethers.JsonRpcProvider(
-      process.env.NEXT_PUBLIC_MONAD_RPC || "http://127.0.0.1:8545"
-    ), []);
-
-  const readContract = useCallback(() =>
-    new ethers.Contract(CONTRACT_ADDRESS, ROAST_ARENA_ABI as string[], getProvider()),
-  [getProvider]);
-
   const loadChainData = useCallback(async () => {
     try {
-      const provider = getProvider();
-      const c = readContract();
+      const c = readContract;
 
       // Fetch current block timestamp alongside contract data.
       // This lets us correct any clock skew between Anvil and real time.
@@ -126,7 +124,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
         c.getRoast(roastId),
         c.getParticipants(roastId),
         c.getWinners(roastId),
-        provider.getBlock("latest"),
+        readProvider.getBlock("latest"),
       ]);
 
       // Compute offset: how many seconds ahead of real time is the blockchain?
@@ -188,7 +186,7 @@ export default function ArenaPage({ params }: { params: Promise<{ id: string }> 
     } catch (err) {
       console.error("loadChainData:", err);
     }
-  }, [roastId, address, readContract, getProvider]);
+  }, [roastId, address]);
 
   const loadContent = useCallback(async () => {
     try {
