@@ -1,10 +1,9 @@
 /**
  * storage.js — file storage abstraction
  *
- * Currently: local filesystem (./uploads/)
- *
- * To switch to cloud (S3, R2, Cloudinary, etc.), replace saveFile() only.
- * The rest of the app never imports from here directly — only index.js uses it.
+ * With CLOUDINARY_URL set (cloudinary://api_key:api_secret@cloud_name),
+ * uploads go to Cloudinary and survive redeploys. Without it, files land in
+ * the local ./uploads/ folder — fine for dev, but ephemeral on Render.
  */
 
 const path = require("path");
@@ -13,9 +12,34 @@ const crypto = require("crypto");
 
 const UPLOAD_DIR = path.join(__dirname, "uploads");
 
-// Ensure the upload directory exists on startup
+// Ensure the upload directory exists on startup (local fallback + static serving)
 if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+// The cloudinary SDK configures itself from CLOUDINARY_URL
+let cloudinary = null;
+if (process.env.CLOUDINARY_URL) {
+  cloudinary = require("cloudinary").v2;
+  console.log("[storage] Cloudinary enabled — uploads persist in the cloud");
+} else {
+  console.log("[storage] CLOUDINARY_URL not set — uploads stored locally (ephemeral on Render)");
+}
+
+function uploadToCloudinary(buffer, ext) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: "roastarena",
+        resource_type: "image",
+        // Keep the detected extension in the delivered URL so the frontend's
+        // image-extension check renders it as an <img>
+        format: ext.slice(1),
+      },
+      (err, result) => (err ? reject(err) : resolve(result.secure_url))
+    );
+    stream.end(buffer);
+  });
 }
 
 /**
@@ -54,18 +78,11 @@ function detectImageType(buffer) {
  * @param {Buffer} buffer - File contents (must be a supported image)
  * @param {string} ext    - Extension from detectImageType (e.g. ".png")
  * @returns {Promise<string>}   - Public URL to access the file
- *
- * ── To switch to cloud ──────────────────────────────────────────────────────
- * Replace the body of this function with an SDK upload, e.g.:
- *
- *   const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
- *   const s3 = new S3Client({ region: process.env.AWS_REGION });
- *   const key = `uploads/${Date.now()}-${crypto.randomBytes(8).toString("hex")}${ext}`;
- *   await s3.send(new PutObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key, Body: buffer }));
- *   return `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${key}`;
- * ────────────────────────────────────────────────────────────────────────────
  */
 async function saveFile(buffer, ext) {
+  if (cloudinary) {
+    return uploadToCloudinary(buffer, ext);
+  }
   const name = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${ext}`;
   await fs.promises.writeFile(path.join(UPLOAD_DIR, name), buffer);
   return `/uploads/${name}`;
