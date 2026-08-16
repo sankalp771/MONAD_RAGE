@@ -761,4 +761,169 @@ contract RoastArenaTest is Test {
         uint256[] memory ids = arena.getRecentRoasts(100);
         assertEq(ids.length, 1);
     }
+
+    // ─────────────────────────────────────────────
+    //  Custom durations
+    // ─────────────────────────────────────────────
+
+    function test_Create_CustomDurations() public {
+        vm.prank(creator);
+        uint256 id = arena.createRoast{value: ROAST_STAKE}(
+            ROAST_STAKE, VOTE_STAKE, 10 minutes, 1 hours
+        );
+        RoastArena.Roast memory r = arena.getRoast(id);
+        assertEq(r.openUntil, block.timestamp + 10 minutes);
+        assertEq(r.voteUntil, block.timestamp + 10 minutes + 1 hours);
+    }
+
+    function test_Create_TwoArgOverloadUsesDefaults() public {
+        uint256 id = _create();
+        RoastArena.Roast memory r = arena.getRoast(id);
+        assertEq(r.openUntil, block.timestamp + arena.DEFAULT_OPEN_DURATION());
+        assertEq(r.voteUntil, block.timestamp + arena.DEFAULT_OPEN_DURATION() + arena.DEFAULT_VOTE_DURATION());
+    }
+
+    function test_Create_Revert_OpenDurationTooShort() public {
+        vm.prank(creator);
+        vm.expectRevert(RoastArena.InvalidDuration.selector);
+        arena.createRoast{value: ROAST_STAKE}(ROAST_STAKE, VOTE_STAKE, 59 seconds, 4 minutes);
+    }
+
+    function test_Create_Revert_OpenDurationTooLong() public {
+        vm.prank(creator);
+        vm.expectRevert(RoastArena.InvalidDuration.selector);
+        arena.createRoast{value: ROAST_STAKE}(ROAST_STAKE, VOTE_STAKE, 1 days + 1, 4 minutes);
+    }
+
+    function test_Create_Revert_VoteDurationTooShort() public {
+        vm.prank(creator);
+        vm.expectRevert(RoastArena.InvalidDuration.selector);
+        arena.createRoast{value: ROAST_STAKE}(ROAST_STAKE, VOTE_STAKE, 3 minutes, 59 seconds);
+    }
+
+    function test_Create_Revert_VoteDurationTooLong() public {
+        vm.prank(creator);
+        vm.expectRevert(RoastArena.InvalidDuration.selector);
+        arena.createRoast{value: ROAST_STAKE}(ROAST_STAKE, VOTE_STAKE, 3 minutes, 1 days + 1);
+    }
+
+    function test_CustomDurations_FullFlow() public {
+        vm.prank(creator);
+        uint256 id = arena.createRoast{value: ROAST_STAKE}(
+            ROAST_STAKE, VOTE_STAKE, 1 minutes, 1 minutes
+        );
+        vm.prank(alice); arena.joinRoast{value: ROAST_STAKE}(id);
+
+        // Warp to absolute stored deadlines (relative warps read a stale
+        // block.timestamp after an expectRevert-consumed call).
+        RoastArena.Roast memory r = arena.getRoast(id);
+        vm.warp(r.openUntil);
+        vm.expectRevert(RoastArena.JoinWindowClosed.selector);
+        vm.prank(bob); arena.joinRoast{value: ROAST_STAKE}(id);
+
+        vm.prank(voter1); arena.vote{value: VOTE_STAKE}(id, alice);
+        vm.warp(r.voteUntil);
+        vm.prank(voter1); arena.settle(id);
+        assertEq(uint(arena.getRoast(id).state), uint(RoastArena.RoastState.SETTLED));
+    }
+
+    // ─────────────────────────────────────────────
+    //  Public settle after grace period
+    // ─────────────────────────────────────────────
+
+    function test_Settle_StrangerBlockedDuringGrace() public {
+        uint256 id = _setupWithTwo();
+        vm.prank(voter1); arena.vote{value: VOTE_STAKE}(id, alice);
+        _warpPastVoting();
+
+        vm.expectRevert(RoastArena.NotParticipantOrVoter.selector);
+        vm.prank(stranger); arena.settle(id);
+    }
+
+    function test_Settle_StrangerAllowedAfterGrace() public {
+        uint256 id = _setupWithTwo();
+        vm.prank(voter1); arena.vote{value: VOTE_STAKE}(id, alice);
+
+        vm.warp(arena.getRoast(id).voteUntil + arena.PUBLIC_SETTLE_GRACE());
+        vm.prank(stranger); arena.settle(id);
+        assertEq(uint(arena.getRoast(id).state), uint(RoastArena.RoastState.SETTLED));
+    }
+
+    function test_Settle_StrangerCancelsAbandonedArena() public {
+        uint256 id = _create(); // only the creator — will cancel
+        vm.warp(arena.getRoast(id).voteUntil + arena.PUBLIC_SETTLE_GRACE());
+        vm.prank(stranger); arena.settle(id);
+        assertEq(uint(arena.getRoast(id).state), uint(RoastArena.RoastState.CANCELLED));
+    }
+
+    // ─────────────────────────────────────────────
+    //  Smart-contract wallet payouts (call, not transfer)
+    // ─────────────────────────────────────────────
+
+    /// transfer()'s 2300-gas stipend rejects wallets whose receive() does any
+    /// storage work (Safe, smart accounts). Payouts must survive them.
+    function test_ClaimRoaster_SmartContractWallet() public {
+        uint256 id = _create();
+        SmartWallet wallet = new SmartWallet(arena);
+        vm.deal(address(wallet), START_BALANCE);
+
+        wallet.join{value: ROAST_STAKE}(id);
+        vm.warp(block.timestamp + OPEN_DURATION + 1);
+        vm.prank(voter1); arena.vote{value: VOTE_STAKE}(id, address(wallet));
+        _warpPastVoting();
+        vm.prank(voter1); arena.settle(id);
+
+        uint256 before = address(wallet).balance;
+        wallet.claimRoaster(id);
+        assertEq(address(wallet).balance, before + 2 * ROAST_STAKE);
+        assertGt(wallet.receiveGasUsed(), 2300); // proves the stipend would have reverted
+    }
+
+    function test_ClaimRefund_SmartContractWallet() public {
+        uint256 id = _create();
+        SmartWallet wallet = new SmartWallet(arena);
+        vm.deal(address(wallet), START_BALANCE);
+
+        wallet.join{value: ROAST_STAKE}(id);
+        vm.warp(block.timestamp + TOTAL_DURATION + 1);
+        wallet.settle(id); // no votes -> CANCELLED
+
+        uint256 before = address(wallet).balance;
+        wallet.claimRefund(id);
+        assertEq(address(wallet).balance, before + ROAST_STAKE);
+    }
+}
+
+/// Minimal smart-account stand-in: receive() writes storage, so it needs
+/// more than the 2300 gas transfer() forwards.
+contract SmartWallet {
+    RoastArena immutable arena;
+    uint256 public receiveGasUsed;
+    uint256 private counter;
+
+    constructor(RoastArena _arena) {
+        arena = _arena;
+    }
+
+    receive() external payable {
+        uint256 g = gasleft();
+        counter++; // SSTORE — well over the 2300 stipend
+        receiveGasUsed = g - gasleft();
+    }
+
+    function join(uint256 id) external payable {
+        arena.joinRoast{value: msg.value}(id);
+    }
+
+    function settle(uint256 id) external {
+        arena.settle(id);
+    }
+
+    function claimRoaster(uint256 id) external {
+        arena.claimRoasterReward(id);
+    }
+
+    function claimRefund(uint256 id) external {
+        arena.claimRefund(id);
+    }
 }
