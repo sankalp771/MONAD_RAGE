@@ -761,4 +761,75 @@ contract RoastArenaTest is Test {
         uint256[] memory ids = arena.getRecentRoasts(100);
         assertEq(ids.length, 1);
     }
+
+    // ─────────────────────────────────────────────
+    //  Smart-contract wallet payouts (call, not transfer)
+    // ─────────────────────────────────────────────
+
+    /// transfer()'s 2300-gas stipend rejects wallets whose receive() does any
+    /// storage work (Safe, smart accounts). Payouts must survive them.
+    function test_ClaimRoaster_SmartContractWallet() public {
+        uint256 id = _create();
+        SmartWallet wallet = new SmartWallet(arena);
+        vm.deal(address(wallet), START_BALANCE);
+
+        wallet.join{value: ROAST_STAKE}(id);
+        vm.warp(block.timestamp + OPEN_DURATION + 1);
+        vm.prank(voter1); arena.vote{value: VOTE_STAKE}(id, address(wallet));
+        _warpPastVoting();
+        vm.prank(voter1); arena.settle(id);
+
+        uint256 before = address(wallet).balance;
+        wallet.claimRoaster(id);
+        assertEq(address(wallet).balance, before + 2 * ROAST_STAKE);
+        assertGt(wallet.receiveGasUsed(), 2300); // proves the stipend would have reverted
+    }
+
+    function test_ClaimRefund_SmartContractWallet() public {
+        uint256 id = _create();
+        SmartWallet wallet = new SmartWallet(arena);
+        vm.deal(address(wallet), START_BALANCE);
+
+        wallet.join{value: ROAST_STAKE}(id);
+        vm.warp(block.timestamp + TOTAL_DURATION + 1);
+        wallet.settle(id); // no votes -> CANCELLED
+
+        uint256 before = address(wallet).balance;
+        wallet.claimRefund(id);
+        assertEq(address(wallet).balance, before + ROAST_STAKE);
+    }
+}
+
+/// Minimal smart-account stand-in: receive() writes storage, so it needs
+/// more than the 2300 gas transfer() forwards.
+contract SmartWallet {
+    RoastArena immutable arena;
+    uint256 public receiveGasUsed;
+    uint256 private counter;
+
+    constructor(RoastArena _arena) {
+        arena = _arena;
+    }
+
+    receive() external payable {
+        uint256 g = gasleft();
+        counter++; // SSTORE — well over the 2300 stipend
+        receiveGasUsed = g - gasleft();
+    }
+
+    function join(uint256 id) external payable {
+        arena.joinRoast{value: msg.value}(id);
+    }
+
+    function settle(uint256 id) external {
+        arena.settle(id);
+    }
+
+    function claimRoaster(uint256 id) external {
+        arena.claimRoasterReward(id);
+    }
+
+    function claimRefund(uint256 id) external {
+        arena.claimRefund(id);
+    }
 }

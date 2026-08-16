@@ -129,6 +129,7 @@ contract RoastArena {
     error VotedForLoser();
     error AlreadyClaimed();
     error NothingToClaim();
+    error TransferFailed();
 
     // ─────────────────────────────────────────────────────────────
     //  Modifiers
@@ -319,7 +320,7 @@ contract RoastArena {
         hasClaimedRoaster[roastId][msg.sender] = true;
         uint256 share = roast.roasterPool / roast.numWinners;
 
-        payable(msg.sender).transfer(share);
+        _payout(msg.sender, share);
         emit RewardClaimed(roastId, msg.sender, share, true);
     }
 
@@ -342,7 +343,7 @@ contract RoastArena {
         hasClaimedVoter[roastId][msg.sender] = true;
         uint256 share = roast.voterPool / roast.winnerVoterCount;
 
-        payable(msg.sender).transfer(share);
+        _payout(msg.sender, share);
         emit RewardClaimed(roastId, msg.sender, share, false);
     }
 
@@ -370,7 +371,7 @@ contract RoastArena {
 
         if (refund == 0) revert NothingToClaim();
 
-        payable(msg.sender).transfer(refund);
+        _payout(msg.sender, refund);
         emit RefundClaimed(roastId, msg.sender, refund);
     }
 
@@ -455,6 +456,16 @@ contract RoastArena {
     // ─────────────────────────────────────────────────────────────
     //  Internal
     // ─────────────────────────────────────────────────────────────
+
+    /**
+     * @dev Send value with full gas instead of transfer()'s 2300 stipend,
+     *      which reverts for smart-contract wallets (Safe, smart accounts).
+     *      Reentrancy is covered by nonReentrant on every claim path.
+     */
+    function _payout(address to, uint256 amount) internal {
+        (bool ok, ) = payable(to).call{value: amount}("");
+        if (!ok) revert TransferFailed();
+    }
 
     function _join(uint256 roastId, address participant, uint256 stakeAmount) internal {
         hasJoined[roastId][participant] = true;
