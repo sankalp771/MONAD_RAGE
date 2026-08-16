@@ -763,6 +763,71 @@ contract RoastArenaTest is Test {
     }
 
     // ─────────────────────────────────────────────
+    //  Custom durations
+    // ─────────────────────────────────────────────
+
+    function test_Create_CustomDurations() public {
+        vm.prank(creator);
+        uint256 id = arena.createRoast{value: ROAST_STAKE}(
+            ROAST_STAKE, VOTE_STAKE, 10 minutes, 1 hours
+        );
+        RoastArena.Roast memory r = arena.getRoast(id);
+        assertEq(r.openUntil, block.timestamp + 10 minutes);
+        assertEq(r.voteUntil, block.timestamp + 10 minutes + 1 hours);
+    }
+
+    function test_Create_TwoArgOverloadUsesDefaults() public {
+        uint256 id = _create();
+        RoastArena.Roast memory r = arena.getRoast(id);
+        assertEq(r.openUntil, block.timestamp + arena.DEFAULT_OPEN_DURATION());
+        assertEq(r.voteUntil, block.timestamp + arena.DEFAULT_OPEN_DURATION() + arena.DEFAULT_VOTE_DURATION());
+    }
+
+    function test_Create_Revert_OpenDurationTooShort() public {
+        vm.prank(creator);
+        vm.expectRevert(RoastArena.InvalidDuration.selector);
+        arena.createRoast{value: ROAST_STAKE}(ROAST_STAKE, VOTE_STAKE, 59 seconds, 4 minutes);
+    }
+
+    function test_Create_Revert_OpenDurationTooLong() public {
+        vm.prank(creator);
+        vm.expectRevert(RoastArena.InvalidDuration.selector);
+        arena.createRoast{value: ROAST_STAKE}(ROAST_STAKE, VOTE_STAKE, 1 days + 1, 4 minutes);
+    }
+
+    function test_Create_Revert_VoteDurationTooShort() public {
+        vm.prank(creator);
+        vm.expectRevert(RoastArena.InvalidDuration.selector);
+        arena.createRoast{value: ROAST_STAKE}(ROAST_STAKE, VOTE_STAKE, 3 minutes, 59 seconds);
+    }
+
+    function test_Create_Revert_VoteDurationTooLong() public {
+        vm.prank(creator);
+        vm.expectRevert(RoastArena.InvalidDuration.selector);
+        arena.createRoast{value: ROAST_STAKE}(ROAST_STAKE, VOTE_STAKE, 3 minutes, 1 days + 1);
+    }
+
+    function test_CustomDurations_FullFlow() public {
+        vm.prank(creator);
+        uint256 id = arena.createRoast{value: ROAST_STAKE}(
+            ROAST_STAKE, VOTE_STAKE, 1 minutes, 1 minutes
+        );
+        vm.prank(alice); arena.joinRoast{value: ROAST_STAKE}(id);
+
+        // Warp to absolute stored deadlines (relative warps read a stale
+        // block.timestamp after an expectRevert-consumed call).
+        RoastArena.Roast memory r = arena.getRoast(id);
+        vm.warp(r.openUntil);
+        vm.expectRevert(RoastArena.JoinWindowClosed.selector);
+        vm.prank(bob); arena.joinRoast{value: ROAST_STAKE}(id);
+
+        vm.prank(voter1); arena.vote{value: VOTE_STAKE}(id, alice);
+        vm.warp(r.voteUntil);
+        vm.prank(voter1); arena.settle(id);
+        assertEq(uint(arena.getRoast(id).state), uint(RoastArena.RoastState.SETTLED));
+    }
+
+    // ─────────────────────────────────────────────
     //  Smart-contract wallet payouts (call, not transfer)
     // ─────────────────────────────────────────────
 

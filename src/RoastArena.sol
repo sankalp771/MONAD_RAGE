@@ -62,6 +62,11 @@ contract RoastArena {
     //  Storage
     // ─────────────────────────────────────────────────────────────
 
+    uint256 public constant DEFAULT_OPEN_DURATION = 3 minutes;
+    uint256 public constant DEFAULT_VOTE_DURATION = 4 minutes;
+    uint256 public constant MIN_DURATION          = 1 minutes;
+    uint256 public constant MAX_DURATION          = 1 days;
+
     uint256 public roastCounter;
     bool    private _locked;
 
@@ -113,6 +118,7 @@ contract RoastArena {
 
     error RoastNotFound();
     error StakeTooLow();
+    error InvalidDuration();
     error IncorrectStakeAmount();
     error JoinWindowClosed();
     error AlreadyJoined();
@@ -152,21 +158,50 @@ contract RoastArena {
     // ─────────────────────────────────────────────────────────────
 
     /**
-     * @notice Create a roast arena. Creator sets both stake amounts and
-     *         auto-joins as the first roaster (must send exactly roastStake).
-     * @param roastStake MON each roaster must stake to join.
-     * @param voteStake  MON each voter must stake to vote.
+     * @notice Create a roast arena with the default 3-minute join window and
+     *         4-minute voting window. Kept for ABI compatibility.
      */
     function createRoast(
         uint256 roastStake,
         uint256 voteStake
     ) external payable returns (uint256 roastId) {
+        return _createRoast(roastStake, voteStake, DEFAULT_OPEN_DURATION, DEFAULT_VOTE_DURATION);
+    }
+
+    /**
+     * @notice Create a roast arena with custom windows. Creator sets both
+     *         stake amounts and auto-joins as the first roaster (must send
+     *         exactly roastStake).
+     * @param roastStake   MON each roaster must stake to join.
+     * @param voteStake    MON each voter must stake to vote.
+     * @param openDuration Join window length in seconds  [1 min, 1 day].
+     * @param voteDuration Voting window length in seconds [1 min, 1 day].
+     */
+    function createRoast(
+        uint256 roastStake,
+        uint256 voteStake,
+        uint256 openDuration,
+        uint256 voteDuration
+    ) external payable returns (uint256 roastId) {
+        return _createRoast(roastStake, voteStake, openDuration, voteDuration);
+    }
+
+    function _createRoast(
+        uint256 roastStake,
+        uint256 voteStake,
+        uint256 openDuration,
+        uint256 voteDuration
+    ) internal returns (uint256 roastId) {
         if (roastStake == 0 || voteStake == 0) revert StakeTooLow();
         if (msg.value != roastStake)            revert IncorrectStakeAmount();
+        if (
+            openDuration < MIN_DURATION || openDuration > MAX_DURATION ||
+            voteDuration < MIN_DURATION || voteDuration > MAX_DURATION
+        ) revert InvalidDuration();
 
         roastId = roastCounter++;
-        uint256 openUntil = block.timestamp + 3 minutes;
-        uint256 voteUntil = openUntil + 4 minutes;
+        uint256 openUntil = block.timestamp + openDuration;
+        uint256 voteUntil = openUntil + voteDuration;
 
         roasts[roastId] = Roast({
             id:               roastId,

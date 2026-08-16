@@ -252,9 +252,10 @@ contract Simulate is Script {
         vm.prank(ALICE); arena.joinRoast{value: ROAST_STAKE}(id);
         vm.prank(BOB);   arena.joinRoast{value: ROAST_STAKE}(id);
 
-        // Zero stakes
-        _expectRevert(abi.encodeWithSelector(
-            arena.createRoast.selector, 0, VOTE_STAKE
+        // Zero stakes (2-arg overload — .selector is ambiguous since v2 added
+        // the 4-arg variant, so spell the signature out)
+        _expectRevert(abi.encodeWithSignature(
+            "createRoast(uint256,uint256)", 0, VOTE_STAKE
         ), CREATOR, 0, "zero roastStake");
         console.log("  [OK] Zero roastStake reverts");
 
