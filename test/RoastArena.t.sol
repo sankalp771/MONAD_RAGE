@@ -828,6 +828,35 @@ contract RoastArenaTest is Test {
     }
 
     // ─────────────────────────────────────────────
+    //  Public settle after grace period
+    // ─────────────────────────────────────────────
+
+    function test_Settle_StrangerBlockedDuringGrace() public {
+        uint256 id = _setupWithTwo();
+        vm.prank(voter1); arena.vote{value: VOTE_STAKE}(id, alice);
+        _warpPastVoting();
+
+        vm.expectRevert(RoastArena.NotParticipantOrVoter.selector);
+        vm.prank(stranger); arena.settle(id);
+    }
+
+    function test_Settle_StrangerAllowedAfterGrace() public {
+        uint256 id = _setupWithTwo();
+        vm.prank(voter1); arena.vote{value: VOTE_STAKE}(id, alice);
+
+        vm.warp(arena.getRoast(id).voteUntil + arena.PUBLIC_SETTLE_GRACE());
+        vm.prank(stranger); arena.settle(id);
+        assertEq(uint(arena.getRoast(id).state), uint(RoastArena.RoastState.SETTLED));
+    }
+
+    function test_Settle_StrangerCancelsAbandonedArena() public {
+        uint256 id = _create(); // only the creator — will cancel
+        vm.warp(arena.getRoast(id).voteUntil + arena.PUBLIC_SETTLE_GRACE());
+        vm.prank(stranger); arena.settle(id);
+        assertEq(uint(arena.getRoast(id).state), uint(RoastArena.RoastState.CANCELLED));
+    }
+
+    // ─────────────────────────────────────────────
     //  Smart-contract wallet payouts (call, not transfer)
     // ─────────────────────────────────────────────
 
