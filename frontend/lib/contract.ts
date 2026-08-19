@@ -2,6 +2,7 @@
 export const ROAST_ARENA_ABI = [
   // ── Write (payable) ────────────────────────────────────────────────────────
   "function createRoast(uint256 roastStake, uint256 voteStake) external payable returns (uint256)",
+  "function createRoast(uint256 roastStake, uint256 voteStake, uint256 openDuration, uint256 voteDuration) external payable returns (uint256)",
   "function joinRoast(uint256 roastId) external payable",
   "function vote(uint256 roastId, address candidate) external payable",
   "function settle(uint256 roastId) external",
@@ -28,6 +29,8 @@ export const ROAST_ARENA_ABI = [
   // ── Custom Errors ──────────────────────────────────────────────────────────
   "error RoastNotFound()",
   "error StakeTooLow()",
+  "error InvalidDuration()",
+  "error TransferFailed()",
   "error IncorrectStakeAmount()",
   "error JoinWindowClosed()",
   "error AlreadyJoined()",
@@ -92,6 +95,12 @@ export const TARGET_CHAIN = configuredChainId === 31337 ? ANVIL_LOCAL : MONAD_TE
 
 // Native currency symbol of the active chain ("MON" on Monad, "ETH" on Anvil)
 export const NATIVE_SYMBOL = TARGET_CHAIN.nativeCurrency.symbol;
+
+// Contract v2 window bounds (mirrors MIN_DURATION / MAX_DURATION on-chain)
+export const MIN_WINDOW_MINUTES = 1;
+export const MAX_WINDOW_MINUTES = 24 * 60;
+export const DEFAULT_OPEN_MINUTES = 3;
+export const DEFAULT_VOTE_MINUTES = 4;
 
 // RoastState enum mirrors the contract
 export enum RoastState {

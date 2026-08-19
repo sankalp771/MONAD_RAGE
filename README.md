@@ -13,8 +13,8 @@ BUILT BY @duveshp and @sankalp771
 
 | Phase | Duration | What happens |
 |---|---|---|
-| **OPEN** | 3 min | Roasters pay `roastStake` to join & submit their roast |
-| **VOTING** | 4 min | Anyone pays `voteStake` to vote for their favourite roaster |
+| **OPEN** | creator-set, 1 min–24 h (default 3 min) | Roasters pay `roastStake` to join & submit their roast |
+| **VOTING** | creator-set, 1 min–24 h (default 4 min) | Anyone pays `voteStake` to vote for their favourite roaster |
 | **SETTLED** | — | Winners split the roaster pool; voters who backed a winner split the voter pool |
 | **CANCELLED** | — | Triggered if < 2 roasters joined or nobody voted — full refunds issued |
 
@@ -71,10 +71,11 @@ State is computed lazily from `block.timestamp` against the stored deadlines —
 
 | Function | Who can call | Description |
 |---|---|---|
-| `createRoast(roastStake, voteStake)` | Anyone | Creates arena; creator auto-joins, pays `roastStake` |
+| `createRoast(roastStake, voteStake)` | Anyone | Creates arena with default 3/4-minute windows |
+| `createRoast(roastStake, voteStake, openDuration, voteDuration)` | Anyone | Creates arena with custom windows (1 min–1 day each) |
 | `joinRoast(roastId)` | Anyone (OPEN phase) | Joins as roaster, pays exact `roastStake` |
 | `vote(roastId, candidate)` | Anyone (VOTING phase) | Casts one vote, pays `voteStake`; no self-votes |
-| `settle(roastId)` | Roasters or voters | Finalises arena, determines winners |
+| `settle(roastId)` | Roasters or voters; anyone 1 h after voting ends | Finalises arena, determines winners |
 | `claimRoasterReward(roastId)` | Winners | Claim equal share of roaster pool |
 | `claimVoterReward(roastId)` | Voters who backed a winner | Claim share of voter pool |
 | `claimRefund(roastId)` | Any participant | Refund from CANCELLED arena |
@@ -95,6 +96,7 @@ voterShare   = voterPool / winnerVoterCount
 ### Security
 
 - Pull-payment pattern (reentrancy safe) on all claim functions
+- Payouts via `call` (full gas) — smart-contract wallets can claim
 - Custom errors for gas efficiency (`RoastNotFound`, `AlreadyClaimed`, `NotInWindow`, …)
 - `exists()` modifier guards all view functions
 - Integer division — dust stays in contract

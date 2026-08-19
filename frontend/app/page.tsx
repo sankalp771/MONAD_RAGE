@@ -5,7 +5,10 @@ import { ethers } from "ethers";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { useWallet } from "@/lib/useWallet";
-import { ROAST_ARENA_ABI, CONTRACT_ADDRESS, NATIVE_SYMBOL, STATE_NAME_COLOR, effectiveStateName } from "@/lib/contract";
+import {
+  ROAST_ARENA_ABI, CONTRACT_ADDRESS, NATIVE_SYMBOL, STATE_NAME_COLOR, effectiveStateName,
+  MIN_WINDOW_MINUTES, MAX_WINDOW_MINUTES, DEFAULT_OPEN_MINUTES, DEFAULT_VOTE_MINUTES,
+} from "@/lib/contract";
 import { getRecentRoastsFromDB, submitChallengeContent, uploadMedia, type RoastIndex } from "@/lib/api";
 import { useCountdown, formatCountdown } from "@/lib/useCountdown";
 
@@ -39,6 +42,8 @@ export default function Home() {
   const [showForm, setShowForm]   = useState(false);
   const [roastStake, setRoastStake]       = useState("0.01");
   const [voteStake, setVoteStake]         = useState("0.005");
+  const [openMinutes, setOpenMinutes]     = useState(String(DEFAULT_OPEN_MINUTES));
+  const [voteMinutes, setVoteMinutes]     = useState(String(DEFAULT_VOTE_MINUTES));
   const [challengeTitle, setChallengeTitle]   = useState("");
   const [challengeDesc, setChallengeDesc]     = useState("");
   const [mediaType, setMediaType]             = useState<"text" | "image">("text");
@@ -97,12 +102,27 @@ export default function Home() {
       setError("Tell everyone what they're roasting");
       return;
     }
+    const openMins = parseFloat(openMinutes);
+    const voteMins = parseFloat(voteMinutes);
+    if (
+      !Number.isFinite(openMins) || !Number.isFinite(voteMins) ||
+      openMins < MIN_WINDOW_MINUTES || openMins > MAX_WINDOW_MINUTES ||
+      voteMins < MIN_WINDOW_MINUTES || voteMins > MAX_WINDOW_MINUTES
+    ) {
+      setError(`Windows must be between ${MIN_WINDOW_MINUTES} minute and 24 hours`);
+      return;
+    }
 
     setCreating(true);
     setError("");
     try {
       const contract = new ethers.Contract(CONTRACT_ADDRESS, ROAST_ARENA_ABI as string[], signer);
-      const tx = await contract.createRoast(roastWei, voteWei, { value: roastWei });
+      // Overloaded on-chain — spell out the 4-arg signature for ethers
+      const tx = await contract["createRoast(uint256,uint256,uint256,uint256)"](
+        roastWei, voteWei,
+        Math.round(openMins * 60), Math.round(voteMins * 60),
+        { value: roastWei },
+      );
       // wait() resolves to null if the tx was dropped/replaced
       const receipt = await tx.wait();
       if (!receipt) {
@@ -168,7 +188,7 @@ export default function Home() {
             <span className="text-orange-500">Roast</span>Arena
           </h1>
           <p className="text-zinc-400 text-lg">
-            3 min to roast. 4 min to vote. Chain decides the winner.
+            Set the windows. Drop the burns. Chain decides the winner.
           </p>
         </div>
 
@@ -273,6 +293,37 @@ export default function Home() {
                   )}
                 </div>
               )}
+
+              <div className="border-t border-zinc-800 pt-4">
+                <p className="text-zinc-500 text-xs mb-3 uppercase tracking-widest">Arena windows</p>
+              </div>
+
+              <div className="flex gap-3">
+                <label className="block flex-1">
+                  <span className="text-zinc-400 text-sm">Roast window (min)</span>
+                  <input
+                    type="number"
+                    step="1"
+                    min={MIN_WINDOW_MINUTES}
+                    max={MAX_WINDOW_MINUTES}
+                    value={openMinutes}
+                    onChange={(e) => setOpenMinutes(e.target.value)}
+                    className="mt-1 w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-white focus:outline-none focus:border-orange-500"
+                  />
+                </label>
+                <label className="block flex-1">
+                  <span className="text-zinc-400 text-sm">Vote window (min)</span>
+                  <input
+                    type="number"
+                    step="1"
+                    min={MIN_WINDOW_MINUTES}
+                    max={MAX_WINDOW_MINUTES}
+                    value={voteMinutes}
+                    onChange={(e) => setVoteMinutes(e.target.value)}
+                    className="mt-1 w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-white focus:outline-none focus:border-orange-500"
+                  />
+                </label>
+              </div>
 
               <div className="border-t border-zinc-800 pt-4">
                 <p className="text-zinc-500 text-xs mb-3 uppercase tracking-widest">Stake settings</p>
