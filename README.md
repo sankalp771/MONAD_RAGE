@@ -2,9 +2,9 @@
 
 **Onchain roast battles on Monad Testnet.** Create an arena, stake MON, drop your best burn, and let the crowd vote. Losing voters fund the winners — prediction market meets roast comedy.
 
-Live at: https://roast-on-chain.vercel.app/ · Contract: [`0xAa9381a6C0717aF8345C36477D09B76CeF2A05F4`](https://testnet.monadexplorer.com/address/0xAa9381a6C0717aF8345C36477D09B76CeF2A05F4) on Monad Testnet
+Live at: https://monad-rage.vercel.app/ · Contract: [`0xff6E651c905cD7a5aE4b8d404173c07dE254D322`](https://testnet.monadexplorer.com/address/0xff6E651c905cD7a5aE4b8d404173c07dE254D322) on Monad Testnet
 
-DEPLOYED CONTRACT ADDRESS : 0xAa9381a6C0717aF8345C36477D09B76CeF2A05F4
+DEPLOYED CONTRACT ADDRESS : 0xff6E651c905cD7a5aE4b8d404173c07dE254D322
 
 BUILT BY @duveshp and @sankalp771
 ---
@@ -218,18 +218,22 @@ node index.js
 
 **`backend/.env`**
 ```
-CONTRACT_ADDRESS=0xAa9381a6C0717aF8345C36477D09B76CeF2A05F4
+CONTRACT_ADDRESS=0xff6E651c905cD7a5aE4b8d404173c07dE254D322
 MONAD_RPC=https://testnet-rpc.monad.xyz
 PORT=3001
 TURSO_DATABASE_URL=libsql://<your-db>.turso.io
 TURSO_AUTH_TOKEN=<your-token>
+# Optional: persistent image hosting (local ./uploads fallback if unset)
+CLOUDINARY_URL=cloudinary://<api_key>:<api_secret>@<cloud_name>
+# Optional: comma-separated CORS allowlist (all origins allowed if unset; no trailing slashes)
+ALLOWED_ORIGINS=https://monad-rage.vercel.app,http://localhost:3000
 ```
 
 ### 3. Frontend
 
 ```bash
 cd frontend
-cp .env.local.example .env.local   # fill in your values
+# create .env.local with the values below
 npm install
 npm run dev
 # → http://localhost:3000
@@ -237,7 +241,7 @@ npm run dev
 
 **`frontend/.env.local`**
 ```
-NEXT_PUBLIC_CONTRACT_ADDRESS=0xAa9381a6C0717aF8345C36477D09B76CeF2A05F4
+NEXT_PUBLIC_CONTRACT_ADDRESS=0xff6E651c905cD7a5aE4b8d404173c07dE254D322
 NEXT_PUBLIC_MONAD_RPC=https://testnet-rpc.monad.xyz
 NEXT_PUBLIC_BACKEND_URL=http://localhost:3001
 NEXT_PUBLIC_CHAIN_ID=10143
@@ -249,11 +253,20 @@ NEXT_PUBLIC_CHAIN_ID=10143
 
 | Layer | Hosted on |
 |---|---|
-| Smart contract | Monad Testnet |
-| Backend API | Render (Node service) |
-| Frontend | Vercel / any static host |
+| Smart contract | Monad Testnet — [`0xff6E651c905cD7a5aE4b8d404173c07dE254D322`](https://testnet.monadexplorer.com/address/0xff6E651c905cD7a5aE4b8d404173c07dE254D322) |
+| Backend API | Render (Node web service) — https://monad-rage.onrender.com |
+| Frontend | Vercel — https://monad-rage.vercel.app |
 | Database | Turso (edge SQLite) |
-| File uploads | Local `uploads/` folder (swap `backend/storage.js` for S3/R2/Cloudinary) |
+| File uploads | Cloudinary via `CLOUDINARY_URL` (local `uploads/` fallback — ephemeral on Render) |
+
+**Render** (backend): root directory `backend`, build `npm install`, start `npm start`, plus the `backend/.env` variables above (Render sets `PORT` itself).
+
+**Vercel** (frontend): root directory `frontend`, default Next.js build settings, with:
+
+```
+NEXT_PUBLIC_CONTRACT_ADDRESS=0xff6E651c905cD7a5aE4b8d404173c07dE254D322
+NEXT_PUBLIC_BACKEND_URL=https://monad-rage.onrender.com
+```
 
 ---
 
@@ -268,7 +281,7 @@ NEXT_PUBLIC_CHAIN_ID=10143
 | Frontend | Next.js 16, React 19, TypeScript |
 | Styling | Tailwind CSS 4 |
 | Web3 client | ethers.js v6, MetaMask |
-| File storage | Local (pluggable to cloud) |
+| File storage | Cloudinary (local fallback) |
 
 ---
 
